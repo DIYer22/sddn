@@ -148,7 +148,7 @@ class DiscreteDistributionOutput(nn.Module):
         self,
         k=64,
         last_c=None,
-        out_c=3,
+        predict_c=3,
         loss_func=None,
         distance_func=None,
         leak_choice=False,
@@ -160,15 +160,19 @@ class DiscreteDistributionOutput(nn.Module):
         self.size = size
         self.sdd = SplitableDiscreteDistribution(k)
         if last_c is None:
-            last_c = max(int(round((k * out_c) ** 0.5)), 4) * (bool(leak_choice) + 1)
+            last_c = max(int(round((k * predict_c) ** 0.5)), 4) * (
+                bool(leak_choice) + 1
+            )
         self.last_c = last_c
-        self.out_c = out_c
+        self.predict_c = predict_c
         self.conv_inc = last_c
         if leak_choice:
             assert not (last_c % 2), last_c
             self.conv_inc = last_c // 2
 
-        self.multi_out_conv1x1 = nn.Conv2d(self.conv_inc, k * out_c, (1, 1), bias=False)
+        self.multi_out_conv1x1 = nn.Conv2d(
+            self.conv_inc, k * predict_c, (1, 1), bias=False
+        )
         self.loss_func = loss_func
         self.distance_func = distance_func
         self.idx = len(self.inits)
@@ -188,7 +192,9 @@ class DiscreteDistributionOutput(nn.Module):
         b, c, h, w = feat_last.shape
         if self.leak_choice:
             feat_last = feat_last[..., : self.conv_inc, :, :]
-        outputs = self.multi_out_conv1x1(feat_last).reshape(b, self.k, self.out_c, h, w)
+        outputs = self.multi_out_conv1x1(feat_last).reshape(
+            b, self.k, self.predict_c, h, w
+        )
         with torch.no_grad():
             if "target" in d:
                 suffix = "" if self.size is None else f"_{self.size}x{self.size}"
@@ -227,13 +233,13 @@ class DiscreteDistributionOutput(nn.Module):
                 )
                 if self.multi_out_conv1x1.bias is not None:
                     feat_leak += self.multi_out_conv1x1.bias.detach().view(1, -1, 1, 1)
-                d["feat_leak"] = feat_leak.reshape(b, self.k, self.out_c, h, w)[
+                d["feat_leak"] = feat_leak.reshape(b, self.k, self.predict_c, h, w)[
                     torch.arange(b), idx_k
                 ]
             else:
                 d["feat_leak"] = self.multi_out_conv1x1(
                     d["feat_last"][..., self.conv_inc :, :, :]
-                ).reshape(b, self.k, self.out_c, h, w)[torch.arange(b), idx_k]
+                ).reshape(b, self.k, self.predict_c, h, w)[torch.arange(b), idx_k]
 
         d["predict"] = predicts
         d["predicts"] = d.get("predicts", []) + [predicts]
@@ -241,16 +247,16 @@ class DiscreteDistributionOutput(nn.Module):
 
     def try_split(self):
         splitd = self.sdd.try_split()
-        out_c = self.out_c
+        predict_c = self.predict_c
         if splitd:
             i_split, i_disapear = splitd["i_split"], splitd["i_disapear"]
             with torch.no_grad():
                 weight = self.multi_out_conv1x1._parameters[
                     "weight"
-                ]  # (k*out_c, last_c)
-                weight[i_disapear * out_c : i_disapear * out_c + out_c] = weight[
-                    i_split * out_c : i_split * out_c + out_c
-                ]
+                ]  # (k*predict_c, last_c)
+                weight[
+                    i_disapear * predict_c : i_disapear * predict_c + predict_c
+                ] = weight[i_split * predict_c : i_split * predict_c + predict_c]
                 assert self.multi_out_conv1x1.bias is None
 
     @classmethod

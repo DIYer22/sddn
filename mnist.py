@@ -202,7 +202,7 @@ class DiscreteDistributionNetwork(nn.Module):
         self.ddo = DiscreteDistributionOutput(
             k=k,
             last_c=last_c,
-            out_c=out_c,
+            predict_c=out_c,
             leak_choice=leak_choice,
         )
         if leak_choice:
