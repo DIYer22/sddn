@@ -198,7 +198,12 @@ class DiscreteDistributionOutput(nn.Module):
         with torch.no_grad():
             if "target" in d:
                 suffix = "" if self.size is None else f"_{self.size}x{self.size}"
-                targets = d["target" + suffix]
+                target_key = "target" + suffix
+                if target_key not in d:
+                    d[target_key] = nn.functional.interpolate(
+                        d["target"], (self.size, self.size), mode="bilinear"
+                    )
+                targets = d[target_key]
                 distance_matrix = distance_func(outputs, targets)  # (b, k)
         if self.training:  # train
             add_loss_d = self.sdd.add_loss_matrix(distance_matrix)
@@ -225,6 +230,7 @@ class DiscreteDistributionOutput(nn.Module):
         if self.leak_choice:
             # TODO not need gen all feat_leak
             detach_conv_to_leak = False
+            # detach_conv_to_leak = True
             if detach_conv_to_leak:
                 weight = self.multi_out_conv1x1.weight.detach()
                 feat_leak = torch.nn.functional.conv2d(
@@ -240,7 +246,6 @@ class DiscreteDistributionOutput(nn.Module):
                 d["feat_leak"] = self.multi_out_conv1x1(
                     d["feat_last"][..., self.conv_inc :, :, :]
                 ).reshape(b, self.k, self.predict_c, h, w)[torch.arange(b), idx_k]
-
         d["predict"] = predicts
         d["predicts"] = d.get("predicts", []) + [predicts]
         return d
