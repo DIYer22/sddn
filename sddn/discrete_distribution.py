@@ -45,8 +45,9 @@ class SplitableDiscreteDistribution:
         self.batchn += 1
         unique_, count_ = np.unique(i_nears, return_counts=True)
         self.count[unique_] += count_
-        for i_near, i_near2 in zip(i_nears, i_near2s):
-            self.near2[i_near, i_near2] += 1
+        # TODO make near2 work again
+        # for i_near, i_near2 in zip(i_nears, i_near2s):
+        #     self.near2[i_near, i_near2] += 1
         self.loss_acc += loss_matrix.sum(0)
         return dict(i_nears=i_nears)
 
@@ -56,10 +57,12 @@ class SplitableDiscreteDistribution:
         i_disapear = np.argmin(count)
         if count[i_disapear] == 0:
             i_disapear = np.argmax((count == 0) * self.loss_acc)
-
+        ps = count / count.sum()
         ps, pd, P = (
-            count[i_split] / self.iter,
-            count[i_disapear] / self.iter,
+            # count[i_split] / self.iter,
+            # count[i_disapear] / self.iter,
+            ps[i_split],
+            ps[i_disapear],
             1 / self.k,
         )
         # 用 Total Variation 简化的一个子集: ps-p + p-pd >  |ps/2-p| * 2 + pd => ps - pd > |2p-ps| + pd
@@ -73,6 +76,9 @@ class SplitableDiscreteDistribution:
 
     def split(self, i_split, i_disapear):
         """"""
+        eps = 0.01
+        self.near2 = 1 - np.eye(self.k)
+        self.near2 = self.near2 / self.near2.sum() * self.iter
         near2_sum = self.near2[i_disapear].sum()
         if near2_sum:
             self.near2[i_disapear][i_disapear] = 0
@@ -132,21 +138,25 @@ class SplitableDiscreteDistribution:
 
     @classmethod
     def test(cls, k=10):
-        self = cls(k)
-        b = 5
-        batchn = 200
-        for batchi in range(batchn):
-            dm = np.random.rand(b, k)
-            self.add_loss_matrix(dm)
-            split = self.try_split()
-            tree - split
+        import tqdm
 
-        assert self.iter == self.near2.sum() == self.count.sum(), [
-            self.iter,
-            self.near2.sum(),
-            self.count.sum(),
-        ]
+        sdd = cls(k)
+        b = 5
+        batchn = 2000
+        for batchi in tqdm.tqdm(range(batchn)):
+            dm = np.random.rand(b, k) * np.linspace(0.59, 1.1, k)[None]
+            sdd.add_loss_matrix(dm)
+            split = sdd.try_split()
+            if split:
+                print(batchi)
+            # tree - split
+
         boxx.g()
+        assert sdd.iter == sdd.near2.sum() == sdd.count.sum(), [
+            sdd.iter,
+            sdd.near2.sum(),
+            sdd.count.sum(),
+        ]
 
 
 def mse_loss_multi_output(input, target):
