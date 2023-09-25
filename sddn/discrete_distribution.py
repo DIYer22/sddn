@@ -67,7 +67,7 @@ class SplitableDiscreteDistribution:
         tv_loss_now = ps - pd
         tv_loss_splited = abs(ps / 2 - P) * 2 + pd
         mg()
-        if self.iter and (tv_loss_splited < tv_loss_now or pd < P / 4):
+        if self.iter and (tv_loss_splited < tv_loss_now or pd < P / 2):
             self.split_iters.append(self.iter)
             return self.split(i_split, i_disapear)
 
@@ -251,9 +251,13 @@ class DiscreteDistributionOutput(nn.Module):
         return d
 
     def try_split(self):
+        import torch.distributed as dist
+
+        rank = int(dist.is_initialized()) and dist.get_rank()
+
         splitd = self.sdd.try_split()
         predict_c = self.predict_c
-        if splitd:
+        if splitd and (rank == 0):
             i_split, i_disapear = splitd["i_split"], splitd["i_disapear"]
             with torch.no_grad():
                 weight = self.multi_out_conv1x1._parameters[
@@ -263,6 +267,9 @@ class DiscreteDistributionOutput(nn.Module):
                     i_disapear * predict_c : i_disapear * predict_c + predict_c
                 ] = weight[i_split * predict_c : i_split * predict_c + predict_c]
                 assert self.multi_out_conv1x1.bias is None
+        if dist.is_initialized():
+            with torch.no_grad():
+                dist.broadcast(self.multi_out_conv1x1._parameters["weight"], src=0)
 
     @classmethod
     def try_split_all(cls):
