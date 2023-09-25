@@ -459,4 +459,5 @@ if __name__ == "__main__":
     bn = [b for b in batch[:100]]
     show_images(bn, "origin")
     show_images(generated, "result")
-    DiscreteDistributionOutput.inits[-1].sdd.plot_dist()
+    sdd = DiscreteDistributionOutput.inits[-1].sdd
+    sdd.plot_dist()

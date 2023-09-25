@@ -108,7 +108,7 @@ class SplitableDiscreteDistribution:
         )
         self.loss_acc[i_disapear] = self.loss_acc[i_split]
 
-        mg()
+        mg()  # /0
         assert np.isfinite(self.near2).all()
         return dict(i_split=i_split, i_disapear=i_disapear)
 
@@ -129,6 +129,24 @@ class SplitableDiscreteDistribution:
         return f"SDD(k={self.k}, splitn={len(self.split_iters)}, iter={self.iter}, last_split_iter={([-1]+self.split_iters)[-1]}, batchn={self.batchn})"
 
     __repr__ = __str__
+
+    @classmethod
+    def test(cls, k=10):
+        self = cls(k)
+        b = 5
+        batchn = 200
+        for batchi in range(batchn):
+            dm = np.random.rand(b, k)
+            self.add_loss_matrix(dm)
+            split = self.try_split()
+            tree - split
+
+        assert self.iter == self.near2.sum() == self.count.sum(), [
+            self.iter,
+            self.near2.sum(),
+            self.count.sum(),
+        ]
+        boxx.g()
 
 
 def mse_loss_multi_output(input, target):
@@ -291,6 +309,7 @@ if __name__ == "__main__":
 
     from torchvision.datasets import cifar
 
+    SplitableDiscreteDistribution.test()
     transform01 = torchvision.transforms.Compose(
         [
             # torchvision.transforms.Resize(32),
