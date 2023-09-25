@@ -40,6 +40,9 @@ if __name__ == "__main__":
             return self.k[idxs]
 
     dist = get_test_dist(50)
+    # densty = boxx.resize(sda.astronaut(), (50, 50)).mean(-1)
+    # densty = densty / densty.sum()
+    # dist = DistributionByDensityArray(densty)
     k = 1000
     itern = 2000
     batch = 4
