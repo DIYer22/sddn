@@ -209,7 +209,9 @@ class DiscreteDistributionNetwork(nn.Module):
             self.b1_leak_choice = MyTinyBlock(size, in_c, 10)
 
     def forward(self, d):  # x is (bs, in_c, size, size) t is (bs)
-
+        tmp_inp = d
+        if not isinstance(d, dict):
+            d = {"predict": tmp_inp}
         if "target" in d:
             batch_size = len(d["target"])
         else:
@@ -269,6 +271,8 @@ class DiscreteDistributionNetwork(nn.Module):
             out + self.te_out(t).reshape(n, -1, 1, 1)
         )  # (bs, 10, size, size)
 
+        if not isinstance(tmp_inp, dict):
+            return d["feat_last"]
         d = self.ddo(d)
         return d
 
@@ -299,6 +303,9 @@ class HierarchicalDiscreteDistributionNetwork(nn.Module):
         return d
 
 
+showt = lambda *l, **kv: show(
+    *l, tprgb, lambda x: ((x + 1) * 128).clip(0, 255).astype(np.uint8), **kv
+)
 # In[ ]:
 def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=device):
     """Training loop for DDPM"""
@@ -334,7 +341,11 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
                     f"shot_num/shots={shot_num}/{shots}({round(shot_num/shots*100,2)}%)"
                 )
                 [
-                    print(i, "loss", float(los)) or show(pre, tar)
+                    print(i, "loss", float(los))
+                    or showt(
+                        pre,
+                        tar,
+                    )
                     for pre, tar, i, los in zip(
                         d["predict"][:2],
                         target,
@@ -346,7 +357,9 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
                 print("generate_image:")
 
                 b, c, h, w = target.shape
-                show - generate_image(model, 4, c, w)
+                img_gened = generate_image(model, 4, c, w)
+                showt(img_gened)
+                torch.save(model, f"{path_prifix}/shot{shot_num}.pt")
             if shot_num >= shots:
                 break
             global_step += 1
@@ -390,20 +403,27 @@ root_dir = boxx.relfile("../data/")
 if os.path.isdir(os.path.expanduser("~/dataset")):
     root_dir = os.path.expanduser("~/dataset")
 path_prifix = os.path.join(root_dir, "exps/minst_ddpm", boxx.localTimeStr(1))
-os.makedirs(os.path.dirname(path_prifix), exist_ok=True)
+# os.makedirs(os.path.dirname(path_prifix), exist_ok=True)
+os.makedirs((path_prifix), exist_ok=True)
+if not os.path.exists("/tmp/boxxTmp"):
+    os.system(f"ln -sf {path_prifix} /tmp/boxxTmp")
+if not os.path.exists("/tmp/boxxTmp/showtmp"):
+    os.system(f"ln -sf {path_prifix} /tmp/boxxTmp/showtmp")
 if __name__ == "__main__":
     args, argkv = boxx.getArgvDic()
     # In[ ]:
-    batch_size = 4096 // 5
+    repeatn = 32
+    batch_size = 4096 // 64
     learning_rate = 1e-3
-    shots = "300w"
+    shots = "3000w"
     num_timesteps = 1000
     num_workers = 10
-    logn = 20
+    logn = 100
+    data = "cifar"
+    condition = False + 1
 
     cudan = torch.cuda.device_count()
     debug = not cudan or torch.cuda.get_device_capability("cuda") <= (6, 9)
-    condition = False
     if argkv.get("debug"):
         debug = True
     if debug:
@@ -412,36 +432,56 @@ if __name__ == "__main__":
         num_timesteps = 4
         num_workers = 0
         logn = 2
+        repeatn = 2
 
     shots = argkv.get("shots", shots)
     if isinstance(shots, str):
         shots = int(shots.lower().replace("w", "0000").replace("k", "000"))
     batch_size = argkv.get("batch_size", batch_size)
-
-    transform01 = torchvision.transforms.Compose(
-        [
-            torchvision.transforms.Resize(32),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize((0.5), (0.5)),
-        ]
-    )
-    dataset = torchvision.datasets.MNIST(
-        root=root_dir, train=True, transform=transform01, download=True
-    )
+    if data == "cifar":
+        transform01 = torchvision.transforms.Compose(
+            [
+                # torchvision.transforms.Resize(32),
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize((0.5), (0.5)),
+            ]
+        )
+        dataset = torchvision.datasets.cifar.CIFAR10(
+            os.path.expanduser("~/dataset"),
+            train=True,
+            transform=transform01,
+            download=True,
+        )
+    if data == "mnist":
+        transform01 = torchvision.transforms.Compose(
+            [
+                torchvision.transforms.Resize(32),
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize((0.5), (0.5)),
+            ]
+        )
+        dataset = torchvision.datasets.MNIST(
+            root=root_dir, train=True, transform=transform01, download=True
+        )
+    channeln = len(dataset[0][0])
     dataloader = torch.utils.data.DataLoader(
         dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
     )
 
     # In[ ]:
-
-    network = HierarchicalDiscreteDistributionNetwork(
-        [
-            DiscreteDistributionNetwork(
-                class_n=len(dataset.class_to_idx), leak_choice=True
-            )
-        ]
-        * 5
+    gen_ddn = lambda: DiscreteDistributionNetwork(
+        channeln,
+        channeln,
+        class_n=len(dataset.class_to_idx),
+        leak_choice=True,
     )
+    ddn_seqen = (
+        [gen_ddn()] * repeatn
+        if data == "mnist"
+        else [gen_ddn() for _ in range(repeatn)]
+    )
+    ddn = ddn_seqen[0]
+    network = HierarchicalDiscreteDistributionNetwork(ddn_seqen)
     network = network.to(device)
     model = network
     optimizer = torch.optim.Adam(
@@ -461,3 +501,6 @@ if __name__ == "__main__":
     show_images(generated, "result")
     sdd = DiscreteDistributionOutput.inits[-1].sdd
     sdd.plot_dist()
+
+    # import torchsummary
+    # torchsummary.summary(network.eval().ddn_seqen[0], (3,32,32,))

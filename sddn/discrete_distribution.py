@@ -19,6 +19,7 @@ eps = 1e-20
 
 
 class SplitableDiscreteDistribution:
+    # TODO 编程 nn.module named_buffers
     def __init__(self, k):
         self.k = k
         self.i_to_idx = np.arange(k)
@@ -319,7 +320,6 @@ if __name__ == "__main__":
 
     from torchvision.datasets import cifar
 
-    SplitableDiscreteDistribution.test()
     transform01 = torchvision.transforms.Compose(
         [
             # torchvision.transforms.Resize(32),
@@ -333,3 +333,4 @@ if __name__ == "__main__":
         transform=transform01,
         download=True,
     )
+    # SplitableDiscreteDistribution.test()
