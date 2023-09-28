@@ -130,7 +130,7 @@ class SplitableDiscreteDistribution:
                 ]
             )
         )
-        boxx.plot(self.count / self.iter * self.k, True)
+        boxx.plot(self.count / self.count.mean(), True)
 
     def __str__(self):
         return f"SDD(k={self.k}, splitn={len(self.split_iters)}, iter={self.iter}, last_split_iter={([-1]+self.split_iters)[-1]}, batchn={self.batchn})"
@@ -256,6 +256,7 @@ class DiscreteDistributionOutput(nn.Module):
                 if idx_k.dim == 0:
                     idx_k = idx_k[None]
             predicts = outputs[torch.arange(b), idx_k]
+            d["outputs"] = d.get("outputs", []) + [outputs]
         if self.leak_choice:
             # TODO not need gen all feat_leak
             detach_conv_to_leak = False
