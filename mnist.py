@@ -16,6 +16,10 @@ from torch.utils.data import DataLoader
 from torchvision.datasets import MNIST
 from tqdm.notebook import tqdm
 
+# In[ ]:
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+tensor2rgb = lambda x: tprgb((x + 1) * 128).clip(0, 255).astype(np.uint8)
+showt = lambda *l, **kv: show(*l, tensor2rgb, **kv)
 
 # In[ ]:
 def show_images(images, title="show"):
@@ -44,10 +48,6 @@ def show_images(images, title="show"):
     path = path_prifix + title + ".png"
     plt.savefig(path)
     plt.show()
-
-
-# In[ ]:
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 
 # In[ ]:
@@ -313,14 +313,11 @@ class HierarchicalDiscreteDistributionNetwork(nn.Module):
         return d
 
 
-tensor2rgb = lambda x: tprgb((x + 1) * 128).clip(0, 255).astype(np.uint8)
-showt = lambda *l, **kv: show(*l, tensor2rgb, **kv)
 # In[ ]:
 def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=device):
     """Training loop for DDPM"""
 
     global_step = 0
-    losses = []
     shot_num = 0
     epoch = 0
     while shot_num < shots:
@@ -342,7 +339,6 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
 
             progress_bar.update(1)
             logs = {"loss": loss.detach().item(), "step": global_step}
-            losses.append(loss.detach().item())
             progress_bar.set_postfix(**logs)
             shot_num += target.shape[0]
             if boxx.timegap(60 * 30, "show-train"):
@@ -403,10 +399,6 @@ def generate_image(model, batch_size, channel, size):
     boxx.mg()
     model.train()
     return frames
-
-
-def rescale(x):
-    return (x + 1) / 2
 
 
 if __name__ == "__main__":
@@ -523,4 +515,4 @@ if __name__ == "__main__":
     sdd.plot_dist()
 
     # import torchsummary
-    # torchsummary.summary(network.eval().ddn_seqen[0], (3,32,32,))
+    # torchsummary.summary(network.eval().ddn_seqen[0], (channeln, 32, 32))
