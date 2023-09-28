@@ -150,6 +150,7 @@ class DiscreteDistributionNetwork(nn.Module):
         class_emb_dim=100,
         previous_last_c=None,
         leak_choice=False,
+        basec=10,
     ):
         super().__init__()
         # Sinusoidal embedding
@@ -159,46 +160,47 @@ class DiscreteDistributionNetwork(nn.Module):
 
         # First half
         self.te1 = self._make_te(class_emb_dim, 1)
-        self.b1 = MyTinyBlock(size, in_c, 10)
-        self.down1 = nn.Conv2d(10, 10, 4, 2, 1)
-        self.te2 = self._make_te(class_emb_dim, 10)
-        self.b2 = MyTinyBlock(size // 2, 10, 20)
-        self.down2 = nn.Conv2d(20, 20, 4, 2, 1)
-        self.te3 = self._make_te(class_emb_dim, 20)
-        self.b3 = MyTinyBlock(size // 4, 20, 40)
-        self.down3 = nn.Conv2d(40, 40, 4, 2, 1)
+        self.b1 = MyTinyBlock(size, in_c, 1 * basec)
+        self.down1 = nn.Conv2d(1 * basec, 1 * basec, 4, 2, 1)
+        self.te2 = self._make_te(class_emb_dim, 1 * basec)
+        self.b2 = MyTinyBlock(size // 2, 1 * basec, 2 * basec)
+        self.down2 = nn.Conv2d(2 * basec, 2 * basec, 4, 2, 1)
+        self.te3 = self._make_te(class_emb_dim, 2 * basec)
+        self.b3 = MyTinyBlock(size // 4, 2 * basec, 4 * basec)
+        self.down3 = nn.Conv2d(4 * basec, 4 * basec, 4, 2, 1)
 
         # Bottleneck
-        self.te_mid = self._make_te(class_emb_dim, 40)
+        self.te_mid = self._make_te(class_emb_dim, 4 * basec)
         self.b_mid = nn.Sequential(
-            MyConv((40, size // 8, size // 8), 40, 20),
-            MyConv((20, size // 8, size // 8), 20, 20),
-            MyConv((20, size // 8, size // 8), 20, 40),
+            MyConv((4 * basec, size // 8, size // 8), 4 * basec, 2 * basec),
+            MyConv((2 * basec, size // 8, size // 8), 2 * basec, 2 * basec),
+            MyConv((2 * basec, size // 8, size // 8), 2 * basec, 4 * basec),
         )
 
         # Second half
-        self.up1 = nn.ConvTranspose2d(40, 40, 4, 2, 1)
-        self.te4 = self._make_te(class_emb_dim, 80)
-        self.b4 = MyTinyUp(size // 4, 80)
-        self.up2 = nn.ConvTranspose2d(20, 20, 4, 2, 1)
-        self.te5 = self._make_te(class_emb_dim, 40)
-        self.b5 = MyTinyUp(size // 2, 40)
-        self.up3 = nn.ConvTranspose2d(10, 10, 4, 2, 1)
-        self.te_out = self._make_te(class_emb_dim, 20)
-        # self.b_out = MyTinyBlock(size, 20, 10)
-        # self.conv_out = nn.Conv2d(10, out_c, 3, 1, 1)
+        self.up1 = nn.ConvTranspose2d(4 * basec, 4 * basec, 4, 2, 1)
+        self.te4 = self._make_te(class_emb_dim, 8 * basec)
+        self.b4 = MyTinyUp(size // 4, 8 * basec)
+        self.up2 = nn.ConvTranspose2d(2 * basec, 2 * basec, 4, 2, 1)
+        self.te5 = self._make_te(class_emb_dim, 4 * basec)
+        self.b5 = MyTinyUp(size // 2, 4 * basec)
+        self.up3 = nn.ConvTranspose2d(1 * basec, 1 * basec, 4, 2, 1)
+        self.te_out = self._make_te(class_emb_dim, 2 * basec)
+        # self.b_out = MyTinyBlock(size, 2 * basec, 1 * basec)
+        # self.conv_out = nn.Conv2d(1 * basec, out_c, 3, 1, 1)
 
         if last_c is None:
-            last_c = max(int(round((k * out_c) ** 0.5)), 4) * (bool(leak_choice) + 1)
+            last_c = basec
+            # last_c = max(int(round((k * out_c) ** 0.5)), 4) * (bool(leak_choice) + 1)
         if previous_last_c is None:
             previous_last_c = last_c
         self.previous_last_c = previous_last_c
-        self.b1_previous_last = MyTinyBlock(size, previous_last_c, 10)
+        self.b1_previous_last = MyTinyBlock(size, previous_last_c, 1 * basec)
         self.out_c = out_c
         self.size = size
         self.leak_choice = leak_choice
 
-        self.b_out = MyTinyBlock(size, 20, last_c)
+        self.b_out = MyTinyBlock(size, 2 * basec, last_c)
         self.ddo = DiscreteDistributionOutput(
             k=k,
             last_c=last_c,
@@ -206,7 +208,7 @@ class DiscreteDistributionNetwork(nn.Module):
             leak_choice=leak_choice,
         )
         if leak_choice:
-            self.b1_leak_choice = MyTinyBlock(size, in_c, 10)
+            self.b1_leak_choice = MyTinyBlock(size, in_c, 1 * basec)
 
     def forward(self, d):  # x is (bs, in_c, size, size) t is (bs)
         tmp_inp = d
@@ -237,7 +239,9 @@ class DiscreteDistributionNetwork(nn.Module):
         if t is None:
             t = torch.zeros(n, dtype=torch.long).cuda()
         t = self.time_embed(t)
-        out1 = self.b1(x + self.te1(t).reshape(n, -1, 1, 1))  # (bs, 10, size/2, size/2)
+        out1 = self.b1(
+            x + self.te1(t).reshape(n, -1, 1, 1)
+        )  # (bs, 1 * basec, size/2, size/2)
 
         out1 = out1 + self.b1_previous_last(feat_last)
 
@@ -249,27 +253,31 @@ class DiscreteDistributionNetwork(nn.Module):
 
         out2 = self.b2(
             self.down1(out1) + self.te2(t).reshape(n, -1, 1, 1)
-        )  # (bs, 20, size/4, size/4)
+        )  # (bs, 2 * basec, size/4, size/4)
         out3 = self.b3(
             self.down2(out2) + self.te3(t).reshape(n, -1, 1, 1)
-        )  # (bs, 40, size/8, size/8)
+        )  # (bs, 4 * basec, size/8, size/8)
 
         out_mid = self.b_mid(
             self.down3(out3) + self.te_mid(t).reshape(n, -1, 1, 1)
-        )  # (bs, 40, size/8, size/8)
+        )  # (bs, 4 * basec, size/8, size/8)
 
-        out4 = torch.cat((out3, self.up1(out_mid)), dim=1)  # (bs, 80, size/8, size/8)
+        out4 = torch.cat(
+            (out3, self.up1(out_mid)), dim=1
+        )  # (bs, 8 * basec, size/8, size/8)
         out4 = self.b4(
             out4 + self.te4(t).reshape(n, -1, 1, 1)
-        )  # (bs, 20, size/8, size/8)
-        out5 = torch.cat((out2, self.up2(out4)), dim=1)  # (bs, 40, size/4, size/4)
+        )  # (bs, 2 * basec, size/8, size/8)
+        out5 = torch.cat(
+            (out2, self.up2(out4)), dim=1
+        )  # (bs, 4 * basec, size/4, size/4)
         out5 = self.b5(
             out5 + self.te5(t).reshape(n, -1, 1, 1)
-        )  # (bs, 10, size/2, size/2)
-        out = torch.cat((out1, self.up3(out5)), dim=1)  # (bs, 20, size, size)
+        )  # (bs, 1 * basec, size/2, size/2)
+        out = torch.cat((out1, self.up3(out5)), dim=1)  # (bs, 2 * basec, size, size)
         d["feat_last"] = self.b_out(
             out + self.te_out(t).reshape(n, -1, 1, 1)
-        )  # (bs, 10, size, size)
+        )  # (bs, 1 * basec, size, size)
 
         if not isinstance(tmp_inp, dict):
             return d["feat_last"]
@@ -404,23 +412,28 @@ def rescale(x):
 if __name__ == "__main__":
     args, argkv = boxx.getArgvDic()
     # In[ ]:
-    stackn = 32
-    repeatn = 16
-    batch_size = int(4096 // (stackn * repeatn)) * 3 // 4
+    basec = 32
+    stackn = 16
+    repeatn = 10
+    batch_size = 8  # int(4096 // (stackn * repeatn)) // 2
     learning_rate = 1e-3
-    shots = "300w"
+    shots = "1000w"
     num_timesteps = 1000
     num_workers = 10
     dumpn = 100
     data = "cifar"
     condition = False + 1
-    task = "defaut"
+    task = "default"
 
     cudan = torch.cuda.device_count()
     debug = not cudan or torch.cuda.get_device_capability("cuda") <= (6, 9)
+    if data == "mnist":
+        basec = 16
+
     if argkv.get("debug"):
         debug = True
     if debug:
+        basec = 8
         batch_size = 2
         shots = 100
         num_timesteps = 4
@@ -484,6 +497,7 @@ if __name__ == "__main__":
         channeln,
         class_n=len(dataset.class_to_idx),
         leak_choice=True,
+        basec=basec,
     )
     ddn_seqen = [gen_ddn() for _ in range(stackn)]
     ddn = ddn_seqen[0]
