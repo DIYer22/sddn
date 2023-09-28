@@ -34,7 +34,7 @@ def show_images(images, title="show"):
             fig.add_subplot(rows, cols, idx + 1)
 
             if idx < len(images):
-                plt.imshow(images[idx], cmap="gray")
+                plt.imshow(tensor2rgb(images[idx]), cmap="gray")
                 plt.axis("off")
                 idx += 1
     fig.suptitle(title, fontsize=30)
@@ -305,9 +305,8 @@ class HierarchicalDiscreteDistributionNetwork(nn.Module):
         return d
 
 
-showt = lambda *l, **kv: show(
-    *l, tprgb, lambda x: ((x + 1) * 128).clip(0, 255).astype(np.uint8), **kv
-)
+tensor2rgb = lambda x: tprgb((x + 1) * 128).clip(0, 255).astype(np.uint8)
+showt = lambda *l, **kv: show(*l, tensor2rgb, **kv)
 # In[ ]:
 def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=device):
     """Training loop for DDPM"""
@@ -338,7 +337,7 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
             losses.append(loss.detach().item())
             progress_bar.set_postfix(**logs)
             shot_num += target.shape[0]
-            if not global_step % (shots // dataloader.batch_size // logn):
+            if boxx.timegap(60 * 30, "show-train"):
                 print(
                     f"shot_num/shots={shot_num}/{shots}({round(shot_num/shots*100,2)}%)"
                 )
@@ -361,6 +360,7 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
                 b, c, h, w = target.shape
                 img_gened = generate_image(model, 4, c, w)
                 showt(img_gened)
+            if not global_step % (shots // dataloader.batch_size // dumpn):
                 torch.save(model, f"{path_prifix}/shot{shot_num}.pt")
             if shot_num >= shots:
                 break
@@ -406,12 +406,12 @@ if __name__ == "__main__":
     # In[ ]:
     stackn = 32
     repeatn = 16
-    batch_size = int(4096 // (stackn * repeatn * 2))
+    batch_size = int(4096 // (stackn * repeatn)) * 3 // 4
     learning_rate = 1e-3
     shots = "300w"
     num_timesteps = 1000
     num_workers = 10
-    logn = 100
+    dumpn = 100
     data = "cifar"
     condition = False + 1
     task = "defaut"
@@ -425,7 +425,7 @@ if __name__ == "__main__":
         shots = 100
         num_timesteps = 4
         num_workers = 0
-        logn = 2
+        dumpn = 2
         stackn = 2
         repeatn = 1
 
