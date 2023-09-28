@@ -299,7 +299,9 @@ class HierarchicalDiscreteDistributionNetwork(nn.Module):
         loss_func
 
     def forward(self, d):
-        d = self.ddn_seqen(d)
+        for stacki in range(len(self.ddn_seqen)):
+            for repeati in range(repeatn):
+                d = self.ddn_seqen[stacki](d)
         return d
 
 
@@ -341,7 +343,7 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
                     f"shot_num/shots={shot_num}/{shots}({round(shot_num/shots*100,2)}%)"
                 )
                 [
-                    print(i, "loss", float(los))
+                    print(f"task: {task}, classi: {i}, loss: {float(los)}")
                     or showt(
                         pre,
                         tar,
@@ -399,28 +401,20 @@ def rescale(x):
     return (x + 1) / 2
 
 
-root_dir = boxx.relfile("../data/")
-if os.path.isdir(os.path.expanduser("~/dataset")):
-    root_dir = os.path.expanduser("~/dataset")
-path_prifix = os.path.join(root_dir, "exps/minst_ddpm", boxx.localTimeStr(1))
-# os.makedirs(os.path.dirname(path_prifix), exist_ok=True)
-os.makedirs((path_prifix), exist_ok=True)
-if not os.path.exists("/tmp/boxxTmp"):
-    os.system(f"ln -sf {path_prifix} /tmp/boxxTmp")
-if not os.path.exists("/tmp/boxxTmp/showtmp"):
-    os.system(f"ln -sf {path_prifix} /tmp/boxxTmp/showtmp")
 if __name__ == "__main__":
     args, argkv = boxx.getArgvDic()
     # In[ ]:
-    repeatn = 32
-    batch_size = 4096 // 64
+    stackn = 32
+    repeatn = 16
+    batch_size = int(4096 // (stackn * repeatn * 2))
     learning_rate = 1e-3
-    shots = "3000w"
+    shots = "300w"
     num_timesteps = 1000
     num_workers = 10
     logn = 100
     data = "cifar"
     condition = False + 1
+    task = "defaut"
 
     cudan = torch.cuda.device_count()
     debug = not cudan or torch.cuda.get_device_capability("cuda") <= (6, 9)
@@ -432,12 +426,28 @@ if __name__ == "__main__":
         num_timesteps = 4
         num_workers = 0
         logn = 2
-        repeatn = 2
+        stackn = 2
+        repeatn = 1
 
     shots = argkv.get("shots", shots)
     if isinstance(shots, str):
         shots = int(shots.lower().replace("w", "0000").replace("k", "000"))
     batch_size = argkv.get("batch_size", batch_size)
+
+    # data/exp dir
+    root_dir = boxx.relfile("../data/")
+    if os.path.isdir(os.path.expanduser("~/dataset")):
+        root_dir = os.path.expanduser("~/dataset")
+    path_prifix = (
+        os.path.join(root_dir, "exps/minst_ddpm", boxx.localTimeStr(1)) + "-" + task
+    )
+    # os.makedirs(os.path.dirname(path_prifix), exist_ok=True)
+    os.makedirs((path_prifix), exist_ok=True)
+    if not os.path.exists("/tmp/boxxTmp"):
+        os.system(f"ln -sf {path_prifix} /tmp/boxxTmp")
+    if not os.path.exists("/tmp/boxxTmp/showtmp"):
+        os.system(f"ln -sf {path_prifix} /tmp/boxxTmp/showtmp")
+
     if data == "cifar":
         transform01 = torchvision.transforms.Compose(
             [
@@ -475,11 +485,7 @@ if __name__ == "__main__":
         class_n=len(dataset.class_to_idx),
         leak_choice=True,
     )
-    ddn_seqen = (
-        [gen_ddn()] * repeatn
-        if data == "mnist"
-        else [gen_ddn() for _ in range(repeatn)]
-    )
+    ddn_seqen = [gen_ddn() for _ in range(stackn)]
     ddn = ddn_seqen[0]
     network = HierarchicalDiscreteDistributionNetwork(ddn_seqen)
     network = network.to(device)
