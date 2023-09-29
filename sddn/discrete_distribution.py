@@ -205,6 +205,9 @@ class DiscreteDistributionOutput(nn.Module):
         self.loss_func = loss_func
         self.distance_func = distance_func
         self.idx = len(self.inits)
+        self.register_buffer(
+            "split_idxs", -torch.ones((2,), dtype=torch.float32, requires_grad=False)
+        )  # int is not supported for NCCL process group
         self.inits.append(self)
 
     def forward(self, d):
@@ -256,7 +259,7 @@ class DiscreteDistributionOutput(nn.Module):
                 if idx_k.dim == 0:
                     idx_k = idx_k[None]
             predicts = outputs[torch.arange(b), idx_k]
-            d["outputs"] = d.get("outputs", []) + [outputs]
+            d["outputs"] = d.get("outputs", []) + [outputs.cpu()]
         if self.leak_choice:
             # TODO not need gen all feat_leak
             detach_conv_to_leak = False
@@ -280,16 +283,27 @@ class DiscreteDistributionOutput(nn.Module):
         d["predicts"] = d.get("predicts", []) + [predicts]
         return d
 
-    def try_split(self):
+    def try_split(self, optimizers=None):
         import torch.distributed as dist
 
         rank = int(dist.is_initialized()) and dist.get_rank()
-
-        splitd = self.sdd.try_split()
-        predict_c = self.predict_c
-        if splitd and (rank == 0):
-            i_split, i_disapear = splitd["i_split"], splitd["i_disapear"]
+        if isinstance(optimizers, torch.optim.Optimizer):
+            optimizers = [optimizers]
+        if rank == 0:
+            splitd = self.sdd.try_split()
+            if splitd:
+                self.split_idxs[:] = torch.Tensor(
+                    [splitd["i_split"], splitd["i_disapear"]]
+                )
+        if dist.is_initialized():
             with torch.no_grad():
+                dist.broadcast(self.split_idxs, src=0)
+        if self.split_idxs[0] != -1:
+            # update multi_out_conv1x1 weight
+            predict_c = self.predict_c
+            with torch.no_grad():
+                i_split, i_disapear = self.split_idxs
+                i_split, i_disapear = int(i_split), int(i_disapear)
                 weight = self.multi_out_conv1x1._parameters[
                     "weight"
                 ]  # (k*predict_c, last_c)
@@ -297,14 +311,27 @@ class DiscreteDistributionOutput(nn.Module):
                     i_disapear * predict_c : i_disapear * predict_c + predict_c
                 ] = weight[i_split * predict_c : i_split * predict_c + predict_c]
                 assert self.multi_out_conv1x1.bias is None
-        if dist.is_initialized():
-            with torch.no_grad():
-                dist.broadcast(self.multi_out_conv1x1._parameters["weight"], src=0)
+
+                # update multi_out_conv1x1 optimizer
+                if optimizers is not None:
+                    for optimizer in optimizers:
+                        if weight in optimizer.state:
+                            for k in optimizer.state[weight]:
+                                if optimizer.state[weight][k].shape == weight.shape:
+                                    optimizer.state[weight][k][
+                                        i_disapear * predict_c : i_disapear * predict_c
+                                        + predict_c
+                                    ] = optimizer.state[weight][k][
+                                        i_split * predict_c : i_split * predict_c
+                                        + predict_c
+                                    ]
+
+            self.split_idxs[:] = torch.Tensor([-1, -1])
 
     @classmethod
-    def try_split_all(cls):
+    def try_split_all(cls, optimizers=None):
         for self in cls.inits:
-            self.try_split()
+            self.try_split(optimizers=optimizers)
 
 
 # class DiscreteDistributionNetwork(nn.Module):

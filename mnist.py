@@ -111,6 +111,7 @@ try:
     from sddn import DiscreteDistributionOutput
 except ModuleNotFoundError:
     pass
+DiscreteDistributionOutput.inits.clear()
 
 
 def linear_spatial_embedding(shape):
@@ -335,13 +336,13 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            DiscreteDistributionOutput.try_split_all()
+            DiscreteDistributionOutput.try_split_all(optimizer)
 
             progress_bar.update(1)
             logs = {"loss": loss.detach().item(), "step": global_step}
             progress_bar.set_postfix(**logs)
             shot_num += target.shape[0]
-            if boxx.timegap(60 * 30, "show-train"):
+            if boxx.timegap(60 * logmin, "show-train"):
                 print(
                     f"shot_num/shots={shot_num}/{shots}({round(shot_num/shots*100,2)}%)"
                 )
@@ -409,18 +410,26 @@ if __name__ == "__main__":
     repeatn = 10
     batch_size = 8  # int(4096 // (stackn * repeatn)) // 2
     learning_rate = 1e-3
-    shots = "1000w"
+    shots = "300w"
     num_timesteps = 1000
     num_workers = 10
     dumpn = 100
+    logmin = 30
     data = "cifar"
+    data = "mnist"
     condition = False + 1
-    task = "default"
+    task = f"{data}-default"
 
     cudan = torch.cuda.device_count()
     debug = not cudan or torch.cuda.get_device_capability("cuda") <= (6, 9)
     if data == "mnist":
         basec = 16
+        repeatn = 10
+        batch_size = 256
+        stackn = 1
+        shots = "600w"
+        logmin = 10
+        condition = False
 
     if argkv.get("debug"):
         debug = True
