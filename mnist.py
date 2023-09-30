@@ -336,6 +336,7 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            # DiscreteDistributionOutput.try_split_all()
             DiscreteDistributionOutput.try_split_all(optimizer)
 
             progress_bar.update(1)
@@ -365,6 +366,9 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
                 b, c, h, w = target.shape
                 img_gened = generate_image(model, 4, c, w)
                 showt(img_gened)
+                show_images(
+                    generate_image(model, 100, 1, 32), "/%09d-result" % shot_num
+                )
             if not global_step % (shots // dataloader.batch_size // dumpn):
                 torch.save(model, f"{path_prifix}/shot{shot_num}.pt")
             if shot_num >= shots:
@@ -413,7 +417,7 @@ if __name__ == "__main__":
     shots = "300w"
     num_timesteps = 1000
     num_workers = 10
-    dumpn = 100
+    dumpn = 4
     logmin = 30
     data = "cifar"
     data = "mnist"
@@ -427,9 +431,10 @@ if __name__ == "__main__":
         repeatn = 10
         batch_size = 256
         stackn = 1
-        shots = "600w"
-        logmin = 10
+        shots = "3000w"
+        logmin = 30
         condition = False
+        task = "mnist-split.opt-3000w"
 
     if argkv.get("debug"):
         debug = True
@@ -511,15 +516,15 @@ if __name__ == "__main__":
     )
     training_loop(model, dataloader, optimizer, shots, num_timesteps, device=device)
 
-    generated = generate_image(model, 100, 1, 32)
-
     for b in dataloader:
         batch = b[0]
         break
 
     bn = [b for b in batch[:100]]
     show_images(bn, "origin")
-    show_images(generated, "result")
+    for i in range(4):
+        generated = generate_image(model, 100, 1, 32)
+        show_images(generated, "result")
     sdd = DiscreteDistributionOutput.inits[-1].sdd
     sdd.plot_dist()
 
