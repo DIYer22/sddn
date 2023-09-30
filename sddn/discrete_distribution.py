@@ -172,7 +172,7 @@ def mse_loss_multi_output(input, target):
 
 class DiscreteDistributionOutput(nn.Module):
     inits = []
-
+    learn_residual = True
     def __init__(
         self,
         k=64,
@@ -228,7 +228,7 @@ class DiscreteDistributionOutput(nn.Module):
         outputs = self.multi_out_conv1x1(feat_last).reshape(
             b, self.k, self.predict_c, h, w
         )
-        if "learn_residual":
+        if self.learn_residual:
             predcit_shape = (b, self.predict_c, h, w)
             if "predict" in d:
                 predict_last = d["predict"]
@@ -245,7 +245,7 @@ class DiscreteDistributionOutput(nn.Module):
                 target_key = "target" + suffix
                 if target_key not in d:
                     d[target_key] = nn.functional.interpolate(
-                        d["target"], (self.size, self.size), mode="bilinear"
+                        d["target"], (self.size, self.size), mode="area"
                     )
                 targets = d[target_key]
                 distance_matrix = distance_func(outputs, targets)  # (b, k)
