@@ -248,7 +248,7 @@ class DiscreteDistributionOutput(nn.Module):
             idx_ks = d.get("idx_ks", [])  # code
             if len(idx_ks) == d["ouput_level"]:
                 if "target" in d:  # find nearst code to target
-                    idx_k = distance_matrix.argmin(1).detach().cpu().numpy()
+                    idx_k = distance_matrix.argmin(1)  # .detach().cpu().numpy()
                 else:  # random sample
                     idx_k = torch.randint(0, self.k, (b,))
                 idx_ks.append(idx_k)
@@ -260,6 +260,10 @@ class DiscreteDistributionOutput(nn.Module):
                     idx_k = idx_k[None]
             predicts = outputs[torch.arange(b), idx_k]
             d["outputs"] = d.get("outputs", []) + [outputs.cpu()]
+        if "target" in d:
+            d["distances"] = d.get("distances", []) + [
+                distance_matrix[torch.arange(b), idx_k]
+            ]
         if self.leak_choice:
             # TODO not need gen all feat_leak
             detach_conv_to_leak = False
