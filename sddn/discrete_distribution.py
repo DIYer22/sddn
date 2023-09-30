@@ -219,7 +219,8 @@ class DiscreteDistributionOutput(nn.Module):
         if distance_func is None:
             distance_func = loss_func
 
-        feat_last = d["feat_last"]
+        feat_last = d["feat_last"]  # TODO rename to feat no last
+        dtype = feat_last.dtype
         device = feat_last.device
         b, c, h, w = feat_last.shape
         if self.leak_choice:
@@ -227,6 +228,17 @@ class DiscreteDistributionOutput(nn.Module):
         outputs = self.multi_out_conv1x1(feat_last).reshape(
             b, self.k, self.predict_c, h, w
         )
+        if "learn_residual":
+            predcit_shape = (b, self.predict_c, h, w)
+            if "predict" in d:
+                predict_last = d["predict"]
+            else:
+                predict_last = torch.zeros(predcit_shape, dtype=dtype, device=device)
+            if predict_last.shape != predcit_shape:
+                predict_last = nn.functional.interpolate(
+                    predict_last, (h, w), mode="bilinear"
+                )
+            outputs = predict_last[:, None] + outputs
         with torch.no_grad():
             if "target" in d:
                 suffix = "" if self.size is None else f"_{self.size}x{self.size}"

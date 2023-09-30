@@ -418,6 +418,7 @@ if __name__ == "__main__":
     num_timesteps = 1000
     num_workers = 10
     dumpn = 4
+    testn = 4
     logmin = 30
     data = "cifar"
     data = "mnist"
@@ -434,11 +435,12 @@ if __name__ == "__main__":
         shots = "3000w"
         logmin = 30
         condition = False
-        task = "mnist-split.opt-3000w"
+        task = "mnist-learn.res-3000w"
 
     if argkv.get("debug"):
         debug = True
     if debug:
+        testn = 1
         basec = 8
         batch_size = 2
         shots = 100
@@ -522,7 +524,7 @@ if __name__ == "__main__":
 
     bn = [b for b in batch[:100]]
     show_images(bn, "origin")
-    for i in range(4):
+    for i in range(testn):
         generated = generate_image(model, 100, 1, 32)
         show_images(generated, "result")
     sdd = DiscreteDistributionOutput.inits[-1].sdd
