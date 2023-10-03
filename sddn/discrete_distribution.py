@@ -173,6 +173,7 @@ def mse_loss_multi_output(input, target):
 class DiscreteDistributionOutput(nn.Module):
     inits = []
     learn_residual = True
+    # learn_residual = False
     def __init__(
         self,
         k=64,
@@ -312,6 +313,7 @@ class DiscreteDistributionOutput(nn.Module):
                     [splitd["i_split"], splitd["i_disapear"]]
                 )
         if dist.is_initialized():
+            torch.distributed.barrier()
             with torch.no_grad():
                 dist.broadcast(self.split_idxs, src=0)
         if self.split_idxs[0] != -1:
@@ -343,6 +345,8 @@ class DiscreteDistributionOutput(nn.Module):
                                     ]
 
             self.split_idxs[:] = torch.Tensor([-1, -1])
+        if dist.is_initialized():
+            torch.distributed.barrier()
 
     @classmethod
     def try_split_all(cls, optimizers=None):
