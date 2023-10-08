@@ -174,6 +174,7 @@ class DiscreteDistributionOutput(nn.Module):
     inits = []
     learn_residual = True
     # learn_residual = False
+    resize_area = True
     def __init__(
         self,
         k=64,
@@ -246,7 +247,7 @@ class DiscreteDistributionOutput(nn.Module):
                 target_key = "target" + suffix
                 if target_key not in d:
                     d[target_key] = nn.functional.interpolate(
-                        d["target"], (self.size, self.size), mode="area"
+                        d["target"], (self.size, self.size), mode="area" if self.resize_area else "bilinear"
                     )
                 targets = d[target_key]
                 distance_matrix = distance_func(outputs, targets)  # (b, k)
