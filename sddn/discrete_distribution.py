@@ -170,11 +170,26 @@ def mse_loss_multi_output(input, target):
     return ((input - target) ** 2).mean((-1, -2, -3))
 
 
+class Conv2dMixedPrecision(torch.nn.Conv2d):
+    def forward(self, input):
+        dtype = input.dtype
+        if self.weight.dtype == dtype:
+            return super().forward(input)
+        weight, bias = self.weight.to(
+            dtype
+        ), None if self.bias is None else self.bias.to(dtype)
+        assert self.padding_mode == "zeros", self.padding_mode
+        return torch.nn.functional.conv2d(
+            input, weight, bias, self.stride, self.padding, self.dilation, self.groups
+        )
+
+
 class DiscreteDistributionOutput(nn.Module):
     inits = []
     learn_residual = True
     # learn_residual = False
     resize_area = True
+
     def __init__(
         self,
         k=64,
@@ -201,7 +216,7 @@ class DiscreteDistributionOutput(nn.Module):
             assert not (last_c % 2), last_c
             self.conv_inc = last_c // 2
 
-        self.multi_out_conv1x1 = nn.Conv2d(
+        self.multi_out_conv1x1 = Conv2dMixedPrecision(
             self.conv_inc, k * predict_c, (1, 1), bias=False
         )
         self.loss_func = loss_func
@@ -247,7 +262,9 @@ class DiscreteDistributionOutput(nn.Module):
                 target_key = "target" + suffix
                 if target_key not in d:
                     d[target_key] = nn.functional.interpolate(
-                        d["target"], (self.size, self.size), mode="area" if self.resize_area else "bilinear"
+                        d["target"],
+                        (self.size, self.size),
+                        mode="area" if self.resize_area else "bilinear",
                     )
                 targets = d[target_key]
                 distance_matrix = distance_func(outputs, targets)  # (b, k)
