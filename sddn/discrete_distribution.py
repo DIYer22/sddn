@@ -315,7 +315,7 @@ class DiscreteDistributionOutput(nn.Module):
                     d["feat_last"][..., self.conv_inc :, :, :]
                 ).reshape(b, self.k, self.predict_c, h, w)[torch.arange(b), idx_k]
         d["predict"] = predicts
-        d["predicts"] = d.get("predicts", []) + [predicts]
+        d["predicts"] = d.get("predicts", []) + [predicts.detach().cpu()]
         return d
 
     def try_split(self, optimizers=None):
