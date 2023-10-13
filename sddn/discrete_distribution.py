@@ -182,7 +182,30 @@ class Conv2dMixedPrecision(torch.nn.Conv2d):
         return torch.nn.functional.conv2d(
             input, weight, bias, self.stride, self.padding, self.dilation, self.groups
         )
+    
+def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3): 
+    # Not work for training, PyTorch's compiler is smarter than me! 
+    # TODO Using in sample for fast genarte
+    """
+    Just forward one output which index is idx_k in k outputs as predict, instead of forward all k outputs
+    """
+    batch_size, c, h, w = input.shape
+    if idx_k is None:
+        idx_k = np.random.randint(0,conv1x1.out_channels//predict_c, (batch_size,))
+    dtype = input.dtype
 
+    slicee = (idx_k[:,None]*predict_c+np.arange(0, predict_c)[None]).flatten()
+    weight = conv1x1.weight[slicee]
+    bias = None if conv1x1.bias is None else conv1x1.bias[slicee]
+    if weight.dtype != dtype:
+        weight, bias = weight.to(dtype), bias if bias is None else bias.to(dtype)
+    assert conv1x1.padding_mode == "zeros", conv1x1.padding_mode
+    assert conv1x1.groups == 1, conv1x1.groups 
+    predict = torch.nn.functional.conv2d(
+        input.reshape(1, batch_size* c, h, w), weight, bias, conv1x1.stride, conv1x1.padding, conv1x1.dilation,batch_size 
+    ).view(batch_size, predict_c, h, w)
+    return predict
+    
 
 class DiscreteDistributionOutput(nn.Module):
     inits = []
@@ -242,20 +265,23 @@ class DiscreteDistributionOutput(nn.Module):
         b, c, h, w = feat_last.shape
         if self.leak_choice:
             feat_last = feat_last[..., : self.conv_inc, :, :]
-        outputs = self.multi_out_conv1x1(feat_last).reshape(
-            b, self.k, self.predict_c, h, w
-        )
-        if self.learn_residual:
-            predcit_shape = (b, self.predict_c, h, w)
-            if "predict" in d:
-                predict_last = d["predict"]
-            else:
-                predict_last = torch.zeros(predcit_shape, dtype=dtype, device=device)
-            if predict_last.shape != predcit_shape:
-                predict_last = nn.functional.interpolate(
-                    predict_last, (h, w), mode="bilinear"
-                )
-            outputs = predict_last[:, None] + outputs
+        # with torch.no_grad():
+        if 1:
+            outputs = self.multi_out_conv1x1(feat_last).reshape(
+                b, self.k, self.predict_c, h, w
+            )
+            if self.learn_residual:
+                predcit_shape = (b, self.predict_c, h, w)
+                if "predict" in d:
+                    predict_last = d["predict"]
+                else:
+                    predict_last = torch.zeros(predcit_shape, dtype=dtype, device=device)
+                if predict_last.shape != predcit_shape:
+                    predict_last = nn.functional.interpolate(
+                        predict_last, (h, w), mode="bilinear"
+                    )
+                # outputs.add_(predict_last[:, None])
+                outputs = outputs + predict_last[:, None]
         with torch.no_grad():
             if "target" in d:
                 suffix = "" if self.size is None else f"_{self.size}x{self.size}"
@@ -269,10 +295,16 @@ class DiscreteDistributionOutput(nn.Module):
                 targets = d[target_key]
                 distance_matrix = distance_func(outputs, targets)  # (b, k)
         if self.training:  # train
+            # del outputs
+            # torch.cuda.empty_cache()
             add_loss_d = self.sdd.add_loss_matrix(distance_matrix)
             idx_k = add_loss_d["i_nears"]
-            idx_k = torch.from_numpy(idx_k).to(device)
+            # idx_k = torch.from_numpy(idx_k).to(device)
             predicts = outputs[torch.arange(b), idx_k]
+            # predicts = forward_one_predict(self.multi_out_conv1x1, feat_last, idx_k, predict_c=self.predict_c)
+            # if self.learn_residual:
+            #     predicts = predict_last + predicts
+            # boxx.increase("sd")>8 and  boxx.g()/0
             d["loss"] = loss_func(predicts, targets)
             d["losses"] = d.get("losses", []) + [d["loss"].mean()]
         else:
@@ -383,20 +415,20 @@ class DiscreteDistributionOutput(nn.Module):
 
 if __name__ == "__main__":
     from boxx.ylth import *
-
-    from torchvision.datasets import cifar
-
-    transform01 = torchvision.transforms.Compose(
-        [
-            # torchvision.transforms.Resize(32),
-            torchvision.transforms.ToTensor(),
-            torchvision.transforms.Normalize((0.5), (0.5)),
-        ]
-    )
-    dataset = cifar.CIFAR10(
-        os.path.expanduser("~/dataset"),
-        train=True,
-        transform=transform01,
-        download=True,
-    )
-    # SplitableDiscreteDistribution.test()
+    if 0:
+        from torchvision.datasets import cifar
+    
+        transform01 = torchvision.transforms.Compose(
+            [
+                # torchvision.transforms.Resize(32),
+                torchvision.transforms.ToTensor(),
+                torchvision.transforms.Normalize((0.5), (0.5)),
+            ]
+        )
+        dataset = cifar.CIFAR10(
+            os.path.expanduser("~/dataset"),
+            train=True,
+            transform=transform01,
+            download=True,
+        )
+        # SplitableDiscreteDistribution.test()
