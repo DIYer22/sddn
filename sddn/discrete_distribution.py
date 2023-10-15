@@ -201,9 +201,23 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
         weight, bias = weight.to(dtype), bias if bias is None else bias.to(dtype)
     assert conv1x1.padding_mode == "zeros", conv1x1.padding_mode
     assert conv1x1.groups == 1, conv1x1.groups 
-    predict = torch.nn.functional.conv2d(
-        input.reshape(1, batch_size* c, h, w), weight, bias, conv1x1.stride, conv1x1.padding, conv1x1.dilation,batch_size 
-    ).view(batch_size, predict_c, h, w)
+    if batch_size>8:  # fast compute  
+        # "by groups" 
+        # view size is not compatible with input, and reshape will consume GPU memory(80MB)
+        predict = torch.nn.functional.conv2d(
+            input.reshape(1, batch_size* c, h, w), weight, bias, conv1x1.stride, conv1x1.padding, conv1x1.dilation, groups=batch_size 
+        ).view(batch_size, predict_c, h, w)
+    elif batch_size<=8: # save GPU memory
+        # "for+cat" and 0: # slow 35% for batch64
+        predict = torch.cat([torch.nn.functional.conv2d(input[ib:ib+1], weight[ib*predict_c:ib*predict_c+predict_c], None if bias is None else bias[ib*predict_c:ib*predict_c+predict_c], conv1x1.stride, conv1x1.padding, conv1x1.dilation,) for ib in range(batch_size)], 0)
+    elif  0: # blanced but more complicated so give up
+        # "conv+idx_eye"
+        predict = torch.nn.functional.conv2d(
+            input, weight, bias, conv1x1.stride, conv1x1.padding, conv1x1.dilation
+        )[np.arange(batch_size).repeat(predict_c), 
+          (np.arange(batch_size)[:,None]*predict_c+np.arange(0, predict_c)[None]).flatten()
+          ].view(batch_size, predict_c, h, w)
+        
     return predict
     
 
@@ -332,20 +346,21 @@ class DiscreteDistributionOutput(nn.Module):
             detach_conv_to_leak = False
             # detach_conv_to_leak = True
             if detach_conv_to_leak:
-                weight = self.multi_out_conv1x1.weight.detach()
+                weight = self.multi_out_conv1x1.weight.detach().to(dtype)
                 feat_leak = torch.nn.functional.conv2d(
                     d["feat_last"][..., self.conv_inc :, :, :],
                     weight,
                 )
                 if self.multi_out_conv1x1.bias is not None:
-                    feat_leak += self.multi_out_conv1x1.bias.detach().view(1, -1, 1, 1)
+                    feat_leak += self.multi_out_conv1x1.bias.detach().view(1, -1, 1, 1).to(dtype)
                 d["feat_leak"] = feat_leak.reshape(b, self.k, self.predict_c, h, w)[
                     torch.arange(b), idx_k
                 ]
             else:
-                d["feat_leak"] = self.multi_out_conv1x1(
-                    d["feat_last"][..., self.conv_inc :, :, :]
-                ).reshape(b, self.k, self.predict_c, h, w)[torch.arange(b), idx_k]
+                # d["feat_leak"] = self.multi_out_conv1x1(
+                #     d["feat_last"][..., self.conv_inc :, :, :]
+                # ).reshape(b, self.k, self.predict_c, h, w)[torch.arange(b), idx_k]
+                d["feat_leak"] = forward_one_predict(self.multi_out_conv1x1, d["feat_last"][..., self.conv_inc :, :, :], idx_k, predict_c=self.predict_c)
         d["predict"] = predicts
         d["predicts"] = d.get("predicts", []) + [predicts.detach().cpu()]
         return d
