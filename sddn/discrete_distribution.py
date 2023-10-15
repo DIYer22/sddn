@@ -182,44 +182,72 @@ class Conv2dMixedPrecision(torch.nn.Conv2d):
         return torch.nn.functional.conv2d(
             input, weight, bias, self.stride, self.padding, self.dilation, self.groups
         )
-    
-def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3): 
-    # Not work for training, PyTorch's compiler is smarter than me! 
+
+
+def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
+    # Not work for training, PyTorch's compiler is smarter than me!
     # TODO Using in sample for fast genarte
     """
     Just forward one output which index is idx_k in k outputs as predict, instead of forward all k outputs
     """
     batch_size, c, h, w = input.shape
     if idx_k is None:
-        idx_k = np.random.randint(0,conv1x1.out_channels//predict_c, (batch_size,))
+        idx_k = np.random.randint(0, conv1x1.out_channels // predict_c, (batch_size,))
     dtype = input.dtype
 
-    slicee = (idx_k[:,None]*predict_c+np.arange(0, predict_c)[None]).flatten()
+    slicee = (idx_k[:, None] * predict_c + np.arange(0, predict_c)[None]).flatten()
     weight = conv1x1.weight[slicee]
     bias = None if conv1x1.bias is None else conv1x1.bias[slicee]
     if weight.dtype != dtype:
         weight, bias = weight.to(dtype), bias if bias is None else bias.to(dtype)
     assert conv1x1.padding_mode == "zeros", conv1x1.padding_mode
-    assert conv1x1.groups == 1, conv1x1.groups 
-    if batch_size>8:  # fast compute  
-        # "by groups" 
+    assert conv1x1.groups == 1, conv1x1.groups
+    if batch_size > 8:  # fast compute
+        # "by groups"
         # view size is not compatible with input, and reshape will consume GPU memory(80MB)
         predict = torch.nn.functional.conv2d(
-            input.reshape(1, batch_size* c, h, w), weight, bias, conv1x1.stride, conv1x1.padding, conv1x1.dilation, groups=batch_size 
+            input.reshape(1, batch_size * c, h, w),
+            weight,
+            bias,
+            conv1x1.stride,
+            conv1x1.padding,
+            conv1x1.dilation,
+            groups=batch_size,
         ).view(batch_size, predict_c, h, w)
-    elif batch_size<=8: # save GPU memory
+    elif batch_size <= 8:  # save GPU memory
         # "for+cat" and 0: # slow 35% for batch64
-        predict = torch.cat([torch.nn.functional.conv2d(input[ib:ib+1], weight[ib*predict_c:ib*predict_c+predict_c], None if bias is None else bias[ib*predict_c:ib*predict_c+predict_c], conv1x1.stride, conv1x1.padding, conv1x1.dilation,) for ib in range(batch_size)], 0)
-    elif  0: # blanced but more complicated so give up
+        predict = torch.cat(
+            [
+                torch.nn.functional.conv2d(
+                    input[ib : ib + 1],
+                    weight[ib * predict_c : ib * predict_c + predict_c],
+                    None
+                    if bias is None
+                    else bias[ib * predict_c : ib * predict_c + predict_c],
+                    conv1x1.stride,
+                    conv1x1.padding,
+                    conv1x1.dilation,
+                )
+                for ib in range(batch_size)
+            ],
+            0,
+        )
+    elif 0:  # blanced but more complicated so give up
         # "conv+idx_eye"
         predict = torch.nn.functional.conv2d(
             input, weight, bias, conv1x1.stride, conv1x1.padding, conv1x1.dilation
-        )[np.arange(batch_size).repeat(predict_c), 
-          (np.arange(batch_size)[:,None]*predict_c+np.arange(0, predict_c)[None]).flatten()
-          ].view(batch_size, predict_c, h, w)
-        
+        )[
+            np.arange(batch_size).repeat(predict_c),
+            (
+                np.arange(batch_size)[:, None] * predict_c
+                + np.arange(0, predict_c)[None]
+            ).flatten(),
+        ].view(
+            batch_size, predict_c, h, w
+        )
+
     return predict
-    
+
 
 class DiscreteDistributionOutput(nn.Module):
     inits = []
@@ -289,7 +317,9 @@ class DiscreteDistributionOutput(nn.Module):
                 if "predict" in d:
                     predict_last = d["predict"]
                 else:
-                    predict_last = torch.zeros(predcit_shape, dtype=dtype, device=device)
+                    predict_last = torch.zeros(
+                        predcit_shape, dtype=dtype, device=device
+                    )
                 if predict_last.shape != predcit_shape:
                     predict_last = nn.functional.interpolate(
                         predict_last, (h, w), mode="bilinear"
@@ -352,7 +382,9 @@ class DiscreteDistributionOutput(nn.Module):
                     weight,
                 )
                 if self.multi_out_conv1x1.bias is not None:
-                    feat_leak += self.multi_out_conv1x1.bias.detach().view(1, -1, 1, 1).to(dtype)
+                    feat_leak += (
+                        self.multi_out_conv1x1.bias.detach().view(1, -1, 1, 1).to(dtype)
+                    )
                 d["feat_leak"] = feat_leak.reshape(b, self.k, self.predict_c, h, w)[
                     torch.arange(b), idx_k
                 ]
@@ -360,7 +392,12 @@ class DiscreteDistributionOutput(nn.Module):
                 # d["feat_leak"] = self.multi_out_conv1x1(
                 #     d["feat_last"][..., self.conv_inc :, :, :]
                 # ).reshape(b, self.k, self.predict_c, h, w)[torch.arange(b), idx_k]
-                d["feat_leak"] = forward_one_predict(self.multi_out_conv1x1, d["feat_last"][..., self.conv_inc :, :, :], idx_k, predict_c=self.predict_c)
+                d["feat_leak"] = forward_one_predict(
+                    self.multi_out_conv1x1,
+                    d["feat_last"][..., self.conv_inc :, :, :],
+                    idx_k,
+                    predict_c=self.predict_c,
+                )
         d["predict"] = predicts
         d["predicts"] = d.get("predicts", []) + [predicts.detach().cpu()]
         return d
@@ -430,9 +467,10 @@ class DiscreteDistributionOutput(nn.Module):
 
 if __name__ == "__main__":
     from boxx.ylth import *
+
     if 0:
         from torchvision.datasets import cifar
-    
+
         transform01 = torchvision.transforms.Compose(
             [
                 # torchvision.transforms.Resize(32),
