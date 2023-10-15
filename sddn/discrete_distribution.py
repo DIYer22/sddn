@@ -191,6 +191,8 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
     Just forward one output which index is idx_k in k outputs as predict, instead of forward all k outputs
     """
     batch_size, c, h, w = input.shape
+    if isinstance(idx_k, torch.Tensor):
+        idx_k = idx_k.detach().cpu().numpy()
     if idx_k is None:
         idx_k = np.random.randint(0, conv1x1.out_channels // predict_c, (batch_size,))
     dtype = input.dtype
