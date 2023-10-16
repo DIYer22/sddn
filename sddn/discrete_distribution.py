@@ -169,6 +169,13 @@ def mse_loss_multi_output(input, target):
     # return (b, k) if is_multi_input else (b,)
     return ((input - target) ** 2).mean((-1, -2, -3))
 
+def l1_loss_multi_output(input, target):
+    is_multi_input = input.ndim != target.ndim
+    if is_multi_input:
+        target = target[:, None]
+    return (torch.abs(input - target)).mean((-1, -2, -3))
+    
+
 
 class Conv2dMixedPrecision(torch.nn.Conv2d):
     def forward(self, input):
@@ -254,8 +261,11 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
 class DiscreteDistributionOutput(nn.Module):
     inits = []
     learn_residual = True
-    # learn_residual = False
     resize_area = True
+    l1_loss = False
+    leak_feat = True
+    # learn_residual = False
+    # l1_loss = True
 
     def __init__(
         self,
@@ -264,12 +274,12 @@ class DiscreteDistributionOutput(nn.Module):
         predict_c=3,
         loss_func=None,
         distance_func=None,
-        leak_choice=False,
+        leak_choice=None,
         size=None,
     ):
         super().__init__()
         self.k = k
-        self.leak_choice = leak_choice
+        self.leak_choice = self.leak_feat if leak_choice is None else leak_choice
         self.size = size
         self.sdd = SplitableDiscreteDistribution(k)
         if last_c is None:
@@ -299,7 +309,7 @@ class DiscreteDistributionOutput(nn.Module):
         loss_func = self.loss_func
         distance_func = self.distance_func
         if loss_func is None:
-            loss_func = mse_loss_multi_output
+            loss_func = l1_loss_multi_output if self.l1_loss else mse_loss_multi_output
         if distance_func is None:
             distance_func = loss_func
 

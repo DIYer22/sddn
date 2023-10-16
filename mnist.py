@@ -435,7 +435,9 @@ if __name__ == "__main__":
         shots = "3000w"
         logmin = 30
         condition = False
-        task = "mnist-learn.res-3000w"
+        # DiscreteDistributionOutput.l1_loss =True
+        DiscreteDistributionOutput.learn_residual = False
+        task = "mnist_wo.res_3000w"
 
     if argkv.get("debug"):
         debug = True
