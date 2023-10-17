@@ -47,8 +47,9 @@ class SplitableDiscreteDistribution:
         unique_, count_ = np.unique(i_nears, return_counts=True)
         self.count[unique_] += count_
         # TODO make near2 work again
-        # for i_near, i_near2 in zip(i_nears, i_near2s):
-        #     self.near2[i_near, i_near2] += 1
+        # TODO to vector
+        for i_near, i_near2 in zip(i_nears, i_near2s):
+            self.near2[i_near, i_near2] += 1
         self.loss_acc += loss_matrix.sum(0)
         return dict(i_nears=i_nears)
 
@@ -77,9 +78,11 @@ class SplitableDiscreteDistribution:
 
     def split(self, i_split, i_disapear):
         """"""
-        eps = 0.01
-        self.near2 = 1 - np.eye(self.k)
-        self.near2 = self.near2 / self.near2.sum() * self.iter
+        old_near2 = self.near2.copy()
+        if "fix_near2" and 0:
+            # eps = 0.01
+            self.near2 = 1 - np.eye(self.k)
+            self.near2 = self.near2 / self.near2.sum() * self.iter
         near2_sum = self.near2[i_disapear].sum()
         if near2_sum:
             self.near2[i_disapear][i_disapear] = 0
@@ -138,26 +141,26 @@ class SplitableDiscreteDistribution:
     __repr__ = __str__
 
     @classmethod
-    def test(cls, k=10):
+    def test(cls, k=5):
         import tqdm
 
         sdd = cls(k)
         b = 5
-        batchn = 2000
+        batchn = 20000
         for batchi in tqdm.tqdm(range(batchn)):
-            dm = np.random.rand(b, k) * np.linspace(0.59, 1.1, k)[None]
+            dm = np.random.rand(b, k) * np.linspace(0.59, 1.1, k)[None]**10
             sdd.add_loss_matrix(dm)
             split = sdd.try_split()
             if split:
                 print(batchi)
             # tree - split
 
-        boxx.g()
-        assert sdd.iter == sdd.near2.sum() == sdd.count.sum(), [
-            sdd.iter,
-            sdd.near2.sum(),
-            sdd.count.sum(),
-        ]
+            boxx.g()
+            assert sdd.iter == sdd.near2.sum() == sdd.count.sum(), [
+                sdd.iter,
+                sdd.near2.sum(),
+                sdd.count.sum(),
+            ]
 
 
 def mse_loss_multi_output(input, target):
@@ -479,7 +482,7 @@ class DiscreteDistributionOutput(nn.Module):
 
 if __name__ == "__main__":
     from boxx.ylth import *
-
+    SplitableDiscreteDistribution.test()
     if 0:
         from torchvision.datasets import cifar
 
@@ -496,4 +499,3 @@ if __name__ == "__main__":
             transform=transform01,
             download=True,
         )
-        # SplitableDiscreteDistribution.test()
