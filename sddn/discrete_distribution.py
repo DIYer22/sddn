@@ -71,37 +71,51 @@ class SplitableDiscreteDistribution:
         # 简化近似: 消失节点处的 output 概率直接置 0 而 GT 仍然为原来的值 pd
         tv_loss_now = ps - pd
         tv_loss_splited = abs(ps / 2 - P) * 2 + pd
-        mg()
+        # mg()
         if self.iter and (tv_loss_splited < tv_loss_now or pd < P / 2):
             self.split_iters.append(self.iter)
             return self.split(i_split, i_disapear)
 
     def split(self, i_split, i_disapear):
         """"""
-        old_near2 = self.near2.copy()
-        if "fix_near2" and 0:
+        # old_near2 = self.near2.copy()
+        if "wo.near2" and 0:  # or fix_near2
             # eps = 0.01
             self.near2 = 1 - np.eye(self.k)
             self.near2 = self.near2 / self.near2.sum() * self.iter
         near2_sum = self.near2[i_disapear].sum()
+
+        def get_weight_per_row():
+            weight_matrix = self.near2 / np.sum(self.near2, axis=1, keepdims=True)
+            idx_finite_2d = np.isfinite(weight_matrix)
+            weight_matrix = np.where(idx_finite_2d, weight_matrix, 1 / (self.k - 1))
+            weight_matrix[~idx_finite_2d.all(), i_disapear] = 0
+            return weight_matrix
+
         if near2_sum:
             self.near2[i_disapear][i_disapear] = 0
-            i_to_weight = self.near2[i_disapear] / max(
-                self.near2[i_disapear].sum(), eps
-            )
+            not_self_sum = self.near2[i_disapear].sum()
+            if not_self_sum:
+                i_to_weight = self.near2[i_disapear] / not_self_sum
+            else:
+                i_to_weight = np.ones(self.k) / (self.k - 1)
+                i_to_weight[i_disapear] = 0
+
             self.count += self.count[i_disapear] * i_to_weight
             self.count[i_disapear] = 0
-
-            self.near2 += (
-                (near2_sum * i_to_weight)[None]
-                * self.near2
-                / np.linalg.norm(self.near2, axis=1, keepdims=True).clip(eps)
-            )
-
+            self.near2 += (near2_sum * i_to_weight)[:, None] * get_weight_per_row()
             self.near2 += self.near2[:, i_disapear : i_disapear + 1] * i_to_weight[None]
             self.near2[:, i_disapear] = 0
             self.near2[i_disapear] = 0
-
+        else:
+            as_other_near2 = self.near2[:, i_disapear : i_disapear + 1].copy()
+            as_other_near2_sum = as_other_near2.sum()
+            if as_other_near2_sum:
+                self.near2[:, i_disapear] = 0
+                self.near2 += as_other_near2 * get_weight_per_row()
+        # removed_near2 = self.near2.copy()
+        # boxx.g()
+        # assert np.allclose(removed_near2.sum(), old_near2.sum()), [removed_near2.sum(), old_near2.sum()]
         """"""
         self.idx_max += 1
         self.i_to_idx[i_split] = self.idx_max
@@ -118,8 +132,8 @@ class SplitableDiscreteDistribution:
         )
         self.loss_acc[i_disapear] = self.loss_acc[i_split]
 
-        mg()  # /0
-        assert np.isfinite(self.near2).all()
+        # mg()  # /0
+        # assert np.isfinite(self.near2).all()
         return dict(i_split=i_split, i_disapear=i_disapear)
 
     def plot_dist(self):
@@ -141,14 +155,14 @@ class SplitableDiscreteDistribution:
     __repr__ = __str__
 
     @classmethod
-    def test(cls, k=5):
+    def test(cls, k=512):
         import tqdm
 
         sdd = cls(k)
-        b = 5
+        b = 64
         batchn = 20000
         for batchi in tqdm.tqdm(range(batchn)):
-            dm = np.random.rand(b, k) * np.linspace(0.59, 1.1, k)[None]**10
+            dm = np.random.rand(b, k) * np.linspace(0.59, 1.1, k)[None] ** 10
             sdd.add_loss_matrix(dm)
             split = sdd.try_split()
             if split:
@@ -156,7 +170,7 @@ class SplitableDiscreteDistribution:
             # tree - split
 
             boxx.g()
-            assert sdd.iter == sdd.near2.sum() == sdd.count.sum(), [
+            assert np.allclose(sdd.iter, sdd.near2.sum()), [
                 sdd.iter,
                 sdd.near2.sum(),
                 sdd.count.sum(),
@@ -172,12 +186,12 @@ def mse_loss_multi_output(input, target):
     # return (b, k) if is_multi_input else (b,)
     return ((input - target) ** 2).mean((-1, -2, -3))
 
+
 def l1_loss_multi_output(input, target):
     is_multi_input = input.ndim != target.ndim
     if is_multi_input:
         target = target[:, None]
     return (torch.abs(input - target)).mean((-1, -2, -3))
-    
 
 
 class Conv2dMixedPrecision(torch.nn.Conv2d):
@@ -482,6 +496,7 @@ class DiscreteDistributionOutput(nn.Module):
 
 if __name__ == "__main__":
     from boxx.ylth import *
+
     SplitableDiscreteDistribution.test()
     if 0:
         from torchvision.datasets import cifar
