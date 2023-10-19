@@ -325,13 +325,19 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
         model.train()
         progress_bar = tqdm(total=len(dataloader))
         progress_bar.set_description(f"Epoch {epoch}")
+        import random
+        level_rand_gen = random.Random("diverse_shaping")
         for step, (target, classi) in enumerate(dataloader):
             # batchd = {k: batchd[k].to(device) for k in batchd}
             batchd = dict(
                 target=target.to(device), classi=classi.to(device) * condition
             )
+            if step: #
+                level_rand_gen.randint(total_ouput_level, total_ouput_level)
+                batchd["total_ouput_level"] = total_ouput_level
             # target = batchd["target"]
             d = model(batchd)
+            total_ouput_level = d["ouput_level"]
             loss = sum(d["losses"]) / len(d["losses"])
             optimizer.zero_grad()
             loss.backward()
@@ -343,6 +349,10 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
             logs = {"loss": loss.detach().item(), "step": global_step}
             progress_bar.set_postfix(**logs)
             shot_num += target.shape[0]
+            
+            if shot_num  < 5:
+                continue 
+            g()/0
             if boxx.timegap(60 * logmin, "show-train"):
                 print(
                     f"shot_num/shots={shot_num}/{shots}({round(shot_num/shots*100,2)}%)"
@@ -450,7 +460,7 @@ if __name__ == "__main__":
         num_workers = 0
         dumpn = 2
         stackn = 2
-        repeatn = 1
+        repeatn = 3
 
     shots = argkv.get("shots", shots)
     if isinstance(shots, str):
