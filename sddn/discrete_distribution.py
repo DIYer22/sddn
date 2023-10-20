@@ -177,21 +177,29 @@ class SplitableDiscreteDistribution:
             ]
 
 
-def mse_loss_multi_output(input, target):
+def mse_loss_multi_output(input, target=None):
     # input (b, k, c, h, w) or (b, c, h, w)
     # target (b, c, h, w)
-    is_multi_input = input.ndim != target.ndim
-    if is_multi_input:
-        target = target[:, None]
-    # return (b, k) if is_multi_input else (b,)
-    return ((input - target) ** 2).mean((-1, -2, -3))
+    if target is None:
+        sub_diff = input
+    else:
+        is_multi_input = input.ndim != target.ndim
+        if is_multi_input:
+            target = target[:, None]
+        # return (b, k) if is_multi_input else (b,)
+        sub_diff = input - target
+    return (sub_diff**2).mean((-1, -2, -3))
 
 
-def l1_loss_multi_output(input, target):
-    is_multi_input = input.ndim != target.ndim
-    if is_multi_input:
-        target = target[:, None]
-    return (torch.abs(input - target)).mean((-1, -2, -3))
+def l1_loss_multi_output(input, target=None):
+    if target is None:
+        sub_diff = input
+    else:
+        is_multi_input = input.ndim != target.ndim
+        if is_multi_input:
+            target = target[:, None]
+        sub_diff = input - target
+    return (torch.abs(sub_diff)).mean((-1, -2, -3))
 
 
 class Conv2dMixedPrecision(torch.nn.Conv2d):
@@ -355,31 +363,57 @@ class DiscreteDistributionOutput(nn.Module):
                     )
                 # outputs.add_(predict_last[:, None])
                 outputs = outputs + predict_last[:, None]
-        with torch.no_grad():
-            if "target" in d:
-                suffix = "" if self.size is None else f"_{self.size}x{self.size}"
-                target_key = "target" + suffix
-                if target_key not in d:
-                    d[target_key] = nn.functional.interpolate(
-                        d["target"],
-                        (self.size, self.size),
-                        mode="area" if self.resize_area else "bilinear",
-                    )
-                targets = d[target_key]
-                distance_matrix = distance_func(outputs, targets)  # (b, k)
+
+        if "target" in d:
+            suffix = "" if self.size is None else f"_{self.size}x{self.size}"
+            target_key = "target" + suffix
+            if target_key not in d:
+                d[target_key] = nn.functional.interpolate(
+                    d["target"],
+                    (self.size, self.size),
+                    mode="area" if self.resize_area else "bilinear",
+                )
+            targets = d[target_key]
+            if "max_distance" not in d:
+                with torch.no_grad():
+                    distance_matrix = distance_func(outputs, targets)  # (b, k)
         if self.training:  # train
             # del outputs
             # torch.cuda.empty_cache()
-            add_loss_d = self.sdd.add_loss_matrix(distance_matrix)
-            idx_k = add_loss_d["i_nears"]
-            # idx_k = torch.from_numpy(idx_k).to(device)
-            predicts = outputs[torch.arange(b), idx_k]
-            # predicts = forward_one_predict(self.multi_out_conv1x1, feat_last, idx_k, predict_c=self.predict_c)
-            # if self.learn_residual:
-            #     predicts = predict_last + predicts
-            # boxx.increase("sd")>8 and  boxx.g()/0
-            d["loss"] = loss_func(predicts, targets)
+            if "max_distance" in d:  # random sample
+                idx_k = torch.randint(0, self.k, (b,))
+                predicts = predicts_resized = outputs[torch.arange(b), idx_k]
+                if self.size != d["random_start_size"]:
+                    predicts_resized = nn.functional.interpolate(
+                        predicts,
+                        (d["random_start_size"], d["random_start_size"]),
+                        mode="area" if self.resize_area else "bilinear",
+                    )
+
+                l1 = torch.abs(predicts_resized - d["random_start_target"])
+                expand_threshold = 0
+                d["loss"] = loss_func((l1 - d["max_distance"]).clip(expand_threshold))
+
+            else:
+                add_loss_d = self.sdd.add_loss_matrix(distance_matrix)
+                idx_k = add_loss_d["i_nears"]
+                # idx_k = torch.from_numpy(idx_k).to(device)
+                predicts = outputs[torch.arange(b), idx_k]
+                # predicts = forward_one_predict(self.multi_out_conv1x1, feat_last, idx_k, predict_c=self.predict_c)
+                # if self.learn_residual:
+                #     predicts = predict_last + predicts
+                # boxx.increase("sd")>8 and  boxx.g()/0
+                d["loss"] = loss_func(predicts, targets)
             d["losses"] = d.get("losses", []) + [d["loss"].mean()]
+
+            if d["ouput_level"] == d.get("random_start_level", -1):
+                with torch.no_grad():
+                    d["max_distance"] = (
+                        torch.abs(outputs - targets[:, None]).max(1)[0].detach()
+                    )
+                d["random_start_target"], d["target_raw"] = targets, d.pop("target")
+                d["outputs_for_max_distance"] = outputs.cpu().detach()
+                d["random_start_size"] = self.size
         else:
             idx_ks = d.get("idx_ks", [])  # code
             if len(idx_ks) == d["ouput_level"]:
@@ -396,10 +430,10 @@ class DiscreteDistributionOutput(nn.Module):
                     idx_k = idx_k[None]
             predicts = outputs[torch.arange(b), idx_k]
             d["outputs"] = d.get("outputs", []) + [outputs.cpu()]
-        if "target" in d:
-            d["distances"] = d.get("distances", []) + [
-                distance_matrix[torch.arange(b), idx_k]
-            ]
+            if "target" in d:
+                d["distances"] = d.get("distances", []) + [
+                    distance_matrix[torch.arange(b), idx_k]
+                ]
         if self.leak_choice:
             # TODO not need gen all feat_leak
             detach_conv_to_leak = False
