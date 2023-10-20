@@ -109,6 +109,7 @@ def MyTinyUp(size, in_c):
 # In[ ]:
 try:
     from sddn import DiscreteDistributionOutput
+    from sddn import diverge_shaping_manager
 except ModuleNotFoundError:
     pass
 DiscreteDistributionOutput.inits.clear()
@@ -325,25 +326,16 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
         model.train()
         progress_bar = tqdm(total=len(dataloader))
         progress_bar.set_description(f"Epoch {epoch}")
-        import random
-
-        fix_rand_gen = random.Random("diverge_shaping")
         for step, (target, classi) in enumerate(dataloader):
             # batchd = {k: batchd[k].to(device) for k in batchd}
             batchd = dict(
                 target=target.to(device), classi=classi.to(device) * condition
             )
-            if step:
-                if fix_rand_gen.random() < diverge_shaping_rate:
-                    batchd["total_ouput_level"] = total_ouput_level
-                    start_level = fix_rand_gen.randint(
-                        0, total_ouput_level - 2
-                    )  # last level don't need
-                    batchd["random_start_level"] = start_level
 
             # target = batchd["target"]
-            d = model(batchd)
-            total_ouput_level = d["ouput_level"] + 1
+            with diverge_shaping_manager(batchd, diverge_shaping_rate):
+                d = model(batchd)
+
             loss = sum(d["losses"]) / len(d["losses"])
             optimizer.zero_grad()
             loss.backward()

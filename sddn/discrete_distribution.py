@@ -283,6 +283,36 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
     return predict
 
 
+import random
+
+
+class DivergeShapingManager:
+    def __init__(self, seed="diverge_shaping"):
+        self.fix_rand_gen = random.Random(seed)
+
+    def __call__(self, d, diverge_shaping_rate=0):
+        if hasattr(self, "total_ouput_level"):
+            if self.fix_rand_gen.random() < diverge_shaping_rate:
+                d["total_ouput_level"] = self.total_ouput_level
+                d["random_start_level"] = self.fix_rand_gen.randint(
+                    0, self.total_ouput_level - 2
+                )  # last level don't need
+        else:
+            self.d = d
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        if hasattr(self, "d"):
+            d = self.__dict__.pop("d")
+            self.total_ouput_level = d.get("ouput_level", -2) + 1
+
+
+diverge_shaping_manager = DivergeShapingManager()
+
+
 class DiscreteDistributionOutput(nn.Module):
     inits = []
     learn_residual = True
