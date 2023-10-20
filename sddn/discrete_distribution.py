@@ -309,6 +309,10 @@ class DivergeShapingManager:
             d = self.__dict__.pop("d")
             self.total_output_level = d.get("output_level", -2) + 1
 
+    def set_total_output_level(self, d):
+        # DistributedDataParallel will copy a new d
+        self.total_output_level = d.get("output_level", -2) + 1
+
 
 diverge_shaping_manager = DivergeShapingManager()
 
