@@ -291,11 +291,11 @@ class DivergeShapingManager:
         self.fix_rand_gen = random.Random(seed)
 
     def __call__(self, d, diverge_shaping_rate=0):
-        if hasattr(self, "total_ouput_level"):
+        if hasattr(self, "total_output_level"):
             if self.fix_rand_gen.random() < diverge_shaping_rate:
-                d["total_ouput_level"] = self.total_ouput_level
+                d["total_output_level"] = self.total_output_level
                 d["random_start_level"] = self.fix_rand_gen.randint(
-                    0, self.total_ouput_level - 2
+                    0, self.total_output_level - 2
                 )  # last level don't need
         else:
             self.d = d
@@ -307,7 +307,7 @@ class DivergeShapingManager:
     def __exit__(self, *args):
         if hasattr(self, "d"):
             d = self.__dict__.pop("d")
-            self.total_ouput_level = d.get("ouput_level", -2) + 1
+            self.total_output_level = d.get("output_level", -2) + 1
 
 
 diverge_shaping_manager = DivergeShapingManager()
@@ -360,7 +360,7 @@ class DiscreteDistributionOutput(nn.Module):
         self.inits.append(self)
 
     def forward(self, d):
-        d["ouput_level"] = d.get("ouput_level", -1) + 1
+        d["output_level"] = d.get("output_level", -1) + 1
         loss_func = self.loss_func
         distance_func = self.distance_func
         if loss_func is None:
@@ -436,7 +436,7 @@ class DiscreteDistributionOutput(nn.Module):
                 d["loss"] = loss_func(predicts, targets)
             d["losses"] = d.get("losses", []) + [d["loss"].mean()]
 
-            if d["ouput_level"] == d.get("random_start_level", -1):
+            if d["output_level"] == d.get("random_start_level", -1):
                 with torch.no_grad():
                     d["max_distance"] = (
                         torch.abs(outputs - targets[:, None]).max(1)[0].detach()
@@ -446,7 +446,7 @@ class DiscreteDistributionOutput(nn.Module):
                 d["random_start_size"] = self.size
         else:
             idx_ks = d.get("idx_ks", [])  # code
-            if len(idx_ks) == d["ouput_level"]:
+            if len(idx_ks) == d["output_level"]:
                 if "target" in d:  # find nearst code to target
                     idx_k = distance_matrix.argmin(1)  # .detach().cpu().numpy()
                 else:  # random sample
