@@ -464,10 +464,18 @@ class DiscreteDistributionOutput(nn.Module):
                 idx_ks.append(idx_k)
                 d["idx_ks"] = idx_ks
             else:  # predefine code
-                idx_k = idx_ks[self.idx]
+                idx_k = idx_ks[d["output_level"]]
                 idx_k = torch.from_numpy(np.array(idx_k)).to(device)
-                if idx_k.dim == 0:
-                    idx_k = idx_k[None]
+                if idx_k.dtype.is_floating_point:
+                    if "idx_ks_raw" not in d:
+                        import copy
+
+                        d["idx_ks_raw"] = copy.deepcopy(d["idx_ks"])
+                    idx_k = (self.k * idx_k).long().clip(0, self.k - 1)
+                    idx_k_ = idx_ks[d["output_level"]]
+                    idx_k_[:] = (
+                        idx_k if isinstance(idx_k_, torch.Tensor) else idx_k.tolist()
+                    )
             predicts = outputs[torch.arange(b), idx_k]
             d["outputs"] = d.get("outputs", []) + [outputs.cpu()]
             if "target" in d:
