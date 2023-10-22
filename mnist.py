@@ -446,7 +446,7 @@ if __name__ == "__main__":
         DiscreteDistributionOutput.learn_residual = False
 
         diverge_shaping_rate = 0.1
-        task = "mnist_diverge.shaping0.1_wo.res_3000w"
+        task = "mnist_diverge.shaping0.1.mean_wo.res_3000w"
 
     if argkv.get("debug"):
         debug = True

@@ -46,7 +46,6 @@ class SplitableDiscreteDistribution:
         self.batchn += 1
         unique_, count_ = np.unique(i_nears, return_counts=True)
         self.count[unique_] += count_
-        # TODO make near2 work again
         # TODO to vector
         for i_near, i_near2 in zip(i_nears, i_near2s):
             self.near2[i_near, i_near2] += 1
@@ -73,6 +72,8 @@ class SplitableDiscreteDistribution:
         tv_loss_splited = abs(ps / 2 - P) * 2 + pd
         # mg()
         if self.iter and (tv_loss_splited < tv_loss_now or pd < P / 2):
+            # split_rate = 4
+            # if self.iter and (ps > P * split_rate or pd < P / split_rate):
             self.split_iters.append(self.iter)
             return self.split(i_split, i_disapear)
 
@@ -432,6 +433,8 @@ class DiscreteDistributionOutput(nn.Module):
                 add_loss_d = self.sdd.add_loss_matrix(distance_matrix)
                 idx_k = add_loss_d["i_nears"]
                 # idx_k = torch.from_numpy(idx_k).to(device)
+                # if random.random() < 0.1: # var.chain0.1
+                #     idx_k = torch.randint(0, self.k, (b,))
                 predicts = outputs[torch.arange(b), idx_k]
                 # predicts = forward_one_predict(self.multi_out_conv1x1, feat_last, idx_k, predict_c=self.predict_c)
                 # if self.learn_residual:
@@ -442,9 +445,12 @@ class DiscreteDistributionOutput(nn.Module):
 
             if d["output_level"] == d.get("random_start_level", -1):
                 with torch.no_grad():
-                    d["max_distance"] = (
-                        torch.abs(outputs - targets[:, None]).max(1)[0].detach()
-                    )
+                    # d["max_distance"] = (
+                    #     torch.abs(outputs - targets[:, None]).max(1)[0].detach()
+                    # )
+                    d["max_distance"] = (predicts - targets).abs() + torch.abs(
+                        outputs - predicts[:, None]
+                    ).mean(1)
                 d["random_start_target"], d["target_raw"] = targets, d.pop("target")
                 d["outputs_for_max_distance"] = outputs.cpu().detach()
                 d["random_start_size"] = self.size
