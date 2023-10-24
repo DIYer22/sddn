@@ -433,7 +433,7 @@ class DiscreteDistributionOutput(nn.Module):
                 add_loss_d = self.sdd.add_loss_matrix(distance_matrix)
                 idx_k = add_loss_d["i_nears"]
                 # idx_k = torch.from_numpy(idx_k).to(device)
-                # if random.random() < 0.1: # chain.dropout0.1
+                # if random.random() < 0.05: # chain.dropout
                 #     idx_k = torch.randint(0, self.k, (b,))
                 predicts = outputs[torch.arange(b), idx_k]
                 # predicts = forward_one_predict(self.multi_out_conv1x1, feat_last, idx_k, predict_c=self.predict_c)

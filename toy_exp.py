@@ -41,11 +41,18 @@ if __name__ == "__main__":
 
     dist = get_test_dist(50)
     # densty = boxx.resize(sda.astronaut(), (50, 50)).mean(-1)
-    # densty = densty / densty.sum()
-    # dist = DistributionByDensityArray(densty)
-    k = 1000
-    itern = 2000
-    batch = 4
+    densty = cv2.resize(
+        imread(
+            "/home/dl/research/discrete_distribution/info/asset/density/ddn-density-256.png"
+        ),
+        (256, 256),
+        interpolation=cv2.INTER_AREA,
+    ).mean(-1)
+    densty = densty / densty.sum()
+    dist = DistributionByDensityArray(densty)
+    k = 5000
+    itern = 6000
+    batch = 40
     gen = GeneratorModel(k)
     sdd = gen.sdd
 
@@ -71,3 +78,4 @@ if __name__ == "__main__":
     sdd.plot_dist()
     print("near2.sum(), iter=", sdd.near2.sum(), sdd.iter)
     globals().update(gen.sdd.__dict__)
+    show - dist.divergence(gen.param[:100])
