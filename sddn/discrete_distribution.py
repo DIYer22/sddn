@@ -368,9 +368,11 @@ class DiscreteDistributionOutput(nn.Module):
     def forward(self, d):
         d["output_level"] = d.get("output_level", -1) + 1
         loss_func = self.loss_func
-        distance_func = self.distance_func
         if loss_func is None:
             loss_func = l1_loss_multi_output if self.l1_loss else mse_loss_multi_output
+        distance_func = d.get("distance_func")
+        if distance_func is None:
+            distance_func = self.distance_func
         if distance_func is None:
             distance_func = loss_func
 
