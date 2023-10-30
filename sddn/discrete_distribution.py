@@ -9,11 +9,11 @@ Created on Tue Sep 19 08:37:01 2023
 """
 
 import boxx
+import random
 import numpy as np
 from boxx import mg
 import torch
 from torch import nn
-
 
 eps = 1e-20
 
@@ -203,20 +203,6 @@ def l1_loss_multi_output(input, target=None):
     return (torch.abs(sub_diff)).mean((-1, -2, -3))
 
 
-class Conv2dMixedPrecision(torch.nn.Conv2d):
-    def forward(self, input):
-        dtype = input.dtype
-        if self.weight.dtype == dtype:
-            return super().forward(input)
-        weight, bias = self.weight.to(
-            dtype
-        ), None if self.bias is None else self.bias.to(dtype)
-        assert self.padding_mode == "zeros", self.padding_mode
-        return torch.nn.functional.conv2d(
-            input, weight, bias, self.stride, self.padding, self.dilation, self.groups
-        )
-
-
 def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
     # Not work for training, PyTorch's compiler is smarter than me!
     # TODO Using in sample for fast genarte
@@ -280,42 +266,21 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
         ].view(
             batch_size, predict_c, h, w
         )
-
     return predict
 
 
-import random
-
-
-class DivergeShapingManager:
-    def __init__(self, seed="diverge_shaping"):
-        self.fix_rand_gen = random.Random(seed)
-
-    def __call__(self, d, diverge_shaping_rate=0):
-        if hasattr(self, "total_output_level"):
-            if self.fix_rand_gen.random() < diverge_shaping_rate:
-                d["total_output_level"] = self.total_output_level
-                d["random_start_level"] = self.fix_rand_gen.randint(
-                    0, self.total_output_level - 2
-                )  # last level don't need
-        else:
-            self.d = d
-        return self
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        if hasattr(self, "d"):
-            d = self.__dict__.pop("d")
-            self.total_output_level = d.get("output_level", -2) + 1
-
-    def set_total_output_level(self, d):
-        # DistributedDataParallel will copy a new d
-        self.total_output_level = d.get("output_level", -2) + 1
-
-
-diverge_shaping_manager = DivergeShapingManager()
+class Conv2dMixedPrecision(torch.nn.Conv2d):
+    def forward(self, input):
+        dtype = input.dtype
+        if self.weight.dtype == dtype:
+            return super().forward(input)
+        weight, bias = self.weight.to(
+            dtype
+        ), None if self.bias is None else self.bias.to(dtype)
+        assert self.padding_mode == "zeros", self.padding_mode
+        return torch.nn.functional.conv2d(
+            input, weight, bias, self.stride, self.padding, self.dilation, self.groups
+        )
 
 
 class DiscreteDistributionOutput(nn.Module):
@@ -578,6 +543,38 @@ class DiscreteDistributionOutput(nn.Module):
 
 # class HierarchicalDiscreteDistributionPyramidNetwork(nn.Module):
 
+
+
+
+class DivergeShapingManager:
+    def __init__(self, seed="diverge_shaping"):
+        self.fix_rand_gen = random.Random(seed)
+
+    def __call__(self, d, diverge_shaping_rate=0):
+        if hasattr(self, "total_output_level"):
+            if self.fix_rand_gen.random() < diverge_shaping_rate:
+                d["total_output_level"] = self.total_output_level
+                d["random_start_level"] = self.fix_rand_gen.randint(
+                    0, self.total_output_level - 2
+                )  # last level don't need
+        else:
+            self.d = d
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        if hasattr(self, "d"):
+            d = self.__dict__.pop("d")
+            self.total_output_level = d.get("output_level", -2) + 1
+
+    def set_total_output_level(self, d):
+        # DistributedDataParallel will copy a new d
+        self.total_output_level = d.get("output_level", -2) + 1
+
+
+diverge_shaping_manager = DivergeShapingManager()
 
 if __name__ == "__main__":
     from boxx.ylth import *
