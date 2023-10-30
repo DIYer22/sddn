@@ -221,6 +221,11 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
     bias = None if conv1x1.bias is None else conv1x1.bias[slicee]
     if weight.dtype != dtype:
         weight, bias = weight.to(dtype), bias if bias is None else bias.to(dtype)
+    if isinstance(conv1x1, AdaptConv2d):
+        conv1x1, adapt_conv = conv1x1.conv1x1, conv1x1
+        conv_weight_diff = adapt_conv.get_conv_weight_diff(input)
+        if conv_weight_diff is not None:
+            weight = weight + conv_weight_diff[slicee]
     assert conv1x1.padding_mode == "zeros", conv1x1.padding_mode
     assert conv1x1.groups == 1, conv1x1.groups
     if batch_size > 8:  # fast compute
@@ -269,18 +274,115 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
     return predict
 
 
-class Conv2dMixedPrecision(torch.nn.Conv2d):
+class SplitableModuleMixin:
+    def split(module, split_idxs, predict_c, optimizers=None):
+        # split/update weight
+        with torch.no_grad():
+            i_split, i_disapear = split_idxs
+            i_split, i_disapear = int(i_split), int(i_disapear)
+            weight = module._parameters["weight"]  # (k*predict_c, last_c)
+            weight[
+                i_disapear * predict_c : i_disapear * predict_c + predict_c
+            ] = weight[i_split * predict_c : i_split * predict_c + predict_c]
+            assert module.bias is None
+
+            # update optimizer
+            if optimizers is not None:
+                for optimizer in optimizers:
+                    if weight in optimizer.state:
+                        for k in optimizer.state[weight]:
+                            if optimizer.state[weight][k].shape == weight.shape:
+                                optimizer.state[weight][k][
+                                    i_disapear * predict_c : i_disapear * predict_c
+                                    + predict_c
+                                ] = optimizer.state[weight][k][
+                                    i_split * predict_c : i_split * predict_c
+                                    + predict_c
+                                ]
+
+
+class Conv2dMixedPrecision(nn.Conv2d, SplitableModuleMixin):
+    def forward(self, input, conv_weight_diff=None):
+        dtype = input.dtype
+        if self.weight.dtype == dtype and conv_weight_diff is None:
+            return super().forward(input)
+        weight, bias = self.weight.to(
+            dtype
+        ), None if self.bias is None else self.bias.to(dtype)
+        if conv_weight_diff is not None:
+            weight = conv_weight_diff + weight
+        assert self.padding_mode == "zeros", self.padding_mode
+        return nn.functional.conv2d(
+            input, weight, bias, self.stride, self.padding, self.dilation, self.groups
+        )
+
+
+class LinearMixedPrecision(nn.Linear, SplitableModuleMixin):
     def forward(self, input):
         dtype = input.dtype
+        if input.ndim == 4:
+            input = input.reshape(input.shape[0], input.shape[1])
         if self.weight.dtype == dtype:
             return super().forward(input)
         weight, bias = self.weight.to(
             dtype
         ), None if self.bias is None else self.bias.to(dtype)
-        assert self.padding_mode == "zeros", self.padding_mode
-        return torch.nn.functional.conv2d(
-            input, weight, bias, self.stride, self.padding, self.dilation, self.groups
+        return nn.functional.linear(input, weight, bias)
+
+
+class AdaptConv2d(nn.Module):
+    def __init__(
+        self,
+        in_channels,
+        out_channels,
+        kernel_size=1,
+        bias=False,
+        se_hidden_layers=0,
+        se_reduction=16,
+    ):
+        super().__init__()
+        self.out_channels = out_channels
+        self.se_hidden_layers = se_hidden_layers
+        self.conv1x1 = Conv2dMixedPrecision(
+            in_channels, out_channels, kernel_size=kernel_size, bias=bias
         )
+        if se_hidden_layers:
+            hiddenn = max(in_channels // se_reduction, 8)
+            outputn = in_channels * out_channels
+            seqs = [
+                nn.AdaptiveAvgPool2d(1),
+                LinearMixedPrecision(in_channels, hiddenn, bias=False),
+                nn.SiLU(inplace=True),
+            ]
+            [
+                seqs.extend(
+                    [
+                        LinearMixedPrecision(hiddenn, hiddenn, bias=False),
+                        nn.SiLU(inplace=True),
+                    ]
+                )
+                for hidden_layeri in range(se_hidden_layers - 1)
+            ]
+            self.se_base = nn.Sequential(*seqs)
+            self.se_output = LinearMixedPrecision(hiddenn, outputn, bias=False)
+
+    def forward(self, input):
+        conv_weight_diff = self.get_conv_weight_diff(input)
+        output = self.conv1x1(input, conv_weight_diff)
+        return output
+
+    def get_conv_weight_diff(self, input):
+        if hasattr(self, "se_output"):
+            feat = self.se_base(input)
+            conv_weight_diff = torch.sigmoid(self.se_output(feat)).reshape(
+                input.shape[0], -1, input.shape[1], 1, 1
+            )
+            return conv_weight_diff
+
+    def split(self, split_idxs, predict_c, optimizers=None):
+        self.conv1x1.split(split_idxs, predict_c, optimizers)
+        if hasattr(self, "se_output"):
+            self.se_output.split(split_idxs, predict_c, optimizers)
 
 
 class DiscreteDistributionOutput(nn.Module):
@@ -319,8 +421,11 @@ class DiscreteDistributionOutput(nn.Module):
             assert not (last_c % 2), last_c
             self.conv_inc = last_c // 2
 
-        self.multi_out_conv1x1 = Conv2dMixedPrecision(
-            self.conv_inc, k * predict_c, (1, 1), bias=False
+        # self.multi_out_conv1x1 = Conv2dMixedPrecision(
+        #     self.conv_inc, k * predict_c, (1, 1), bias=False
+        # )
+        self.multi_out_conv1x1 = AdaptConv2d(
+            self.conv_inc, k * predict_c, (1, 1), bias=False, se_hidden_layers=3
         )
         self.loss_func = loss_func
         self.distance_func = distance_func
@@ -455,6 +560,7 @@ class DiscreteDistributionOutput(nn.Module):
             detach_conv_to_leak = False
             # detach_conv_to_leak = True
             if detach_conv_to_leak:
+                raise NotImplementedError()
                 weight = self.multi_out_conv1x1.weight.detach().to(dtype)
                 feat_leak = torch.nn.functional.conv2d(
                     d["feat_last"][..., self.conv_inc :, :, :],
@@ -498,33 +604,7 @@ class DiscreteDistributionOutput(nn.Module):
             with torch.no_grad():
                 dist.broadcast(self.split_idxs, src=0)
         if self.split_idxs[0] != -1:
-            # update multi_out_conv1x1 weight
-            predict_c = self.predict_c
-            with torch.no_grad():
-                i_split, i_disapear = self.split_idxs
-                i_split, i_disapear = int(i_split), int(i_disapear)
-                weight = self.multi_out_conv1x1._parameters[
-                    "weight"
-                ]  # (k*predict_c, last_c)
-                weight[
-                    i_disapear * predict_c : i_disapear * predict_c + predict_c
-                ] = weight[i_split * predict_c : i_split * predict_c + predict_c]
-                assert self.multi_out_conv1x1.bias is None
-
-                # update multi_out_conv1x1 optimizer
-                if optimizers is not None:
-                    for optimizer in optimizers:
-                        if weight in optimizer.state:
-                            for k in optimizer.state[weight]:
-                                if optimizer.state[weight][k].shape == weight.shape:
-                                    optimizer.state[weight][k][
-                                        i_disapear * predict_c : i_disapear * predict_c
-                                        + predict_c
-                                    ] = optimizer.state[weight][k][
-                                        i_split * predict_c : i_split * predict_c
-                                        + predict_c
-                                    ]
-
+            self.multi_out_conv1x1(self.split_idxs, self.predict_c, optimizers)
             self.split_idxs[:] = torch.Tensor([-1, -1])
         if dist.is_initialized():
             torch.distributed.barrier()
@@ -542,8 +622,6 @@ class DiscreteDistributionOutput(nn.Module):
 
 
 # class HierarchicalDiscreteDistributionPyramidNetwork(nn.Module):
-
-
 
 
 class DivergeShapingManager:
