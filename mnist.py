@@ -441,12 +441,13 @@ if __name__ == "__main__":
         stackn = 1
         shots = "3000w"
         logmin = 30
+        logmin = 10
         condition = False
         # DiscreteDistributionOutput.l1_loss =True
         DiscreteDistributionOutput.learn_residual = False
-
         diverge_shaping_rate = 0
-        task = "mnist_diverge.shaping0_wo.res_3000w-before-adapt.conv"
+        DiscreteDistributionOutput.adapt_conv = 3
+        task = "mnist_diverge.shaping0_wo.res_3000w-adapt.conv3-wo.sigmod"
 
     if argkv.get("debug"):
         debug = True

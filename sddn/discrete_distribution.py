@@ -210,22 +210,36 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
     Just forward one output which index is idx_k in k outputs as predict, instead of forward all k outputs
     """
     batch_size, c, h, w = input.shape
+    k = conv1x1.out_channels // predict_c
     if isinstance(idx_k, torch.Tensor):
         idx_k = idx_k.detach().cpu().numpy()
     if idx_k is None:
-        idx_k = np.random.randint(0, conv1x1.out_channels // predict_c, (batch_size,))
+        idx_k = np.random.randint(0, k, (batch_size,))
     dtype = input.dtype
 
     slicee = (idx_k[:, None] * predict_c + np.arange(0, predict_c)[None]).flatten()
+    if isinstance(conv1x1, AdaptConv2d):
+        conv1x1, adapt_conv = conv1x1.conv1x1, conv1x1
+        conv_weight_adapt = adapt_conv.get_conv_weight_adapt(input)
+        if conv_weight_adapt is not None:
+            conv_weight_adapt_selected = conv_weight_adapt.view(
+                batch_size, k, predict_c, c, 1, 1
+            )[range(batch_size), idx_k]
+            # predict = adapt_conv.adapt_conv2d(input, conv1x1.weight[slicee], conv_weight_adapt_selected)
+            conv_weight_batch = conv1x1.weight[slicee].view(
+                batch_size, predict_c, c, 1, 1
+            ).to(dtype) + conv_weight_adapt_selected.view(
+                batch_size, predict_c, c, 1, 1
+            )
+            return torch.einsum("bihw,boihw->bohw", [input, conv_weight_batch]).view(
+                batch_size, predict_c, h, w
+            )
+            return predict.view(batch_size, predict_c, h, w)
     weight = conv1x1.weight[slicee]
     bias = None if conv1x1.bias is None else conv1x1.bias[slicee]
     if weight.dtype != dtype:
         weight, bias = weight.to(dtype), bias if bias is None else bias.to(dtype)
-    if isinstance(conv1x1, AdaptConv2d):
-        conv1x1, adapt_conv = conv1x1.conv1x1, conv1x1
-        conv_weight_diff = adapt_conv.get_conv_weight_diff(input)
-        if conv_weight_diff is not None:
-            weight = weight + conv_weight_diff[slicee]
+
     assert conv1x1.padding_mode == "zeros", conv1x1.padding_mode
     assert conv1x1.groups == 1, conv1x1.groups
     if batch_size > 8:  # fast compute
@@ -302,15 +316,13 @@ class SplitableModuleMixin:
 
 
 class Conv2dMixedPrecision(nn.Conv2d, SplitableModuleMixin):
-    def forward(self, input, conv_weight_diff=None):
+    def forward(self, input):
         dtype = input.dtype
-        if self.weight.dtype == dtype and conv_weight_diff is None:
+        if self.weight.dtype == dtype:
             return super().forward(input)
         weight, bias = self.weight.to(
             dtype
         ), None if self.bias is None else self.bias.to(dtype)
-        if conv_weight_diff is not None:
-            weight = conv_weight_diff + weight
         assert self.padding_mode == "zeros", self.padding_mode
         return nn.functional.conv2d(
             input, weight, bias, self.stride, self.padding, self.dilation, self.groups
@@ -365,19 +377,33 @@ class AdaptConv2d(nn.Module):
             ]
             self.se_base = nn.Sequential(*seqs)
             self.se_output = LinearMixedPrecision(hiddenn, outputn, bias=False)
+            # for k,v in (self.named_parameters()):
+            #     v.data.mul_(1e-15)
 
     def forward(self, input):
-        conv_weight_diff = self.get_conv_weight_diff(input)
-        output = self.conv1x1(input, conv_weight_diff)
+        conv_weight_adapt = self.get_conv_weight_adapt(input)
+        if conv_weight_adapt is None:
+            output = self.conv1x1(input)
+        else:
+            output = self.adapt_conv2d(input, self.conv1x1.weight, conv_weight_adapt)
         return output
 
-    def get_conv_weight_diff(self, input):
+    @staticmethod
+    def adapt_conv2d(input, weight, conv_weight_adapt=None):
+        dtype = input.dtype
+        weight = weight.to(dtype)
+        if conv_weight_adapt is None:
+            return nn.functional.conv2d(input, weight)
+        conv_weight_batch = weight[None] + conv_weight_adapt
+        return torch.einsum("bihw,boihw->bohw", [input, conv_weight_batch])
+
+    def get_conv_weight_adapt(self, input):
         if hasattr(self, "se_output"):
             feat = self.se_base(input)
-            conv_weight_diff = torch.sigmoid(self.se_output(feat)).reshape(
+            conv_weight_adapt = (self.se_output(feat)).reshape(
                 input.shape[0], -1, input.shape[1], 1, 1
             )
-            return conv_weight_diff
+            return conv_weight_adapt
 
     def split(self, split_idxs, predict_c, optimizers=None):
         self.conv1x1.split(split_idxs, predict_c, optimizers)
@@ -394,6 +420,7 @@ class DiscreteDistributionOutput(nn.Module):
     # learn_residual = False
     # l1_loss = True
     chain_dropout = 0
+    adapt_conv = 3
 
     def __init__(
         self,
@@ -425,7 +452,11 @@ class DiscreteDistributionOutput(nn.Module):
         #     self.conv_inc, k * predict_c, (1, 1), bias=False
         # )
         self.multi_out_conv1x1 = AdaptConv2d(
-            self.conv_inc, k * predict_c, (1, 1), bias=False, se_hidden_layers=3
+            self.conv_inc,
+            k * predict_c,
+            (1, 1),
+            bias=False,
+            se_hidden_layers=self.adapt_conv,
         )
         self.loss_func = loss_func
         self.distance_func = distance_func
@@ -604,7 +635,7 @@ class DiscreteDistributionOutput(nn.Module):
             with torch.no_grad():
                 dist.broadcast(self.split_idxs, src=0)
         if self.split_idxs[0] != -1:
-            self.multi_out_conv1x1(self.split_idxs, self.predict_c, optimizers)
+            self.multi_out_conv1x1.split(self.split_idxs, self.predict_c, optimizers)
             self.split_idxs[:] = torch.Tensor([-1, -1])
         if dist.is_initialized():
             torch.distributed.barrier()
