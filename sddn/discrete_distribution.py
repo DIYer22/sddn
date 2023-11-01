@@ -36,7 +36,12 @@ class SplitableDiscreteDistribution:
         if isinstance(loss_matrix, torch.Tensor):
             loss_matrix = loss_matrix.detach().cpu().numpy()
         b, k = loss_matrix.shape
-        i_near_near2s = np.argpartition(loss_matrix, 2)[:, :2]
+        if k == 2:
+            i_near_near2s = np.zeros((b, 2), np.int64)
+            i_near_near2s[:, 1] = 1
+        else:
+            i_near_near2s = np.argpartition(loss_matrix, 2)[:, :2]
+            
         i_nears = np.argmin(loss_matrix, 1)
 
         i_near2s = i_near_near2s[i_near_near2s != i_nears[:, None]]
@@ -75,12 +80,14 @@ class SplitableDiscreteDistribution:
             # split_rate = 4
             # if self.iter and (ps > P * split_rate or pd < P / split_rate):
             self.split_iters.append(self.iter)
-            return self.split(i_split, i_disapear)
+            d = self.split(i_split, i_disapear)
+            d["ps"], d["pd"] = ps, pd
+            return d
 
     def split(self, i_split, i_disapear):
         """"""
         # old_near2 = self.near2.copy()
-        if "wo.near2" and 0:  # or fix_near2
+        if "wo.near2" and 0 or self.k == 2:  # or fix_near2
             # eps = 0.01
             self.near2 = 1 - np.eye(self.k)
             self.near2 = self.near2 / self.near2.sum() * self.iter
@@ -156,7 +163,7 @@ class SplitableDiscreteDistribution:
     __repr__ = __str__
 
     @classmethod
-    def test(cls, k=512):
+    def test(cls, k=2):
         import tqdm
 
         sdd = cls(k)
@@ -167,7 +174,7 @@ class SplitableDiscreteDistribution:
             sdd.add_loss_matrix(dm)
             split = sdd.try_split()
             if split:
-                print(batchi)
+                print(batchi, split)
             # tree - split
 
             boxx.g()
@@ -420,7 +427,8 @@ class DiscreteDistributionOutput(nn.Module):
     # learn_residual = False
     # l1_loss = True
     chain_dropout = 0
-    adapt_conv = 3
+    adapt_conv = 0
+    # adapt_conv = 3
 
     def __init__(
         self,
