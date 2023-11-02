@@ -459,12 +459,14 @@ class DiscreteDistributionOutput(nn.Module):
         # self.multi_out_conv1x1 = Conv2dMixedPrecision(
         #     self.conv_inc, k * predict_c, (1, 1), bias=False
         # )
-        self.multi_out_conv1x1 = AdaptConv2d(
+        self.multi_out_conv1x1 =  AdaptConv2d(
             self.conv_inc,
             k * predict_c,
             (1, 1),
             bias=False,
             se_hidden_layers=self.adapt_conv,
+        ) if self.adapt_conv else Conv2dMixedPrecision(
+             self.conv_inc, k * predict_c, (1, 1), bias=False
         )
         self.loss_func = loss_func
         self.distance_func = distance_func
