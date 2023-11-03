@@ -76,7 +76,7 @@ class SplitableDiscreteDistribution:
         tv_loss_now = ps - pd
         tv_loss_splited = abs(ps / 2 - P) * 2 + pd
         # mg()
-        if self.iter and (tv_loss_splited < tv_loss_now or pd < P / 2):
+        if self.iter > getattr(self, "split_start", 0) and (tv_loss_splited < tv_loss_now or pd < P / 2):
             # split_rate = 4
             # if self.iter and (ps > P * split_rate or pd < P / split_rate):
             self.split_iters.append(self.iter)
