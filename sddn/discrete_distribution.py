@@ -41,7 +41,7 @@ class SplitableDiscreteDistribution:
             i_near_near2s[:, 1] = 1
         else:
             i_near_near2s = np.argpartition(loss_matrix, 2)[:, :2]
-            
+
         i_nears = np.argmin(loss_matrix, 1)
 
         i_near2s = i_near_near2s[i_near_near2s != i_nears[:, None]]
@@ -76,7 +76,9 @@ class SplitableDiscreteDistribution:
         tv_loss_now = ps - pd
         tv_loss_splited = abs(ps / 2 - P) * 2 + pd
         # mg()
-        if self.iter > getattr(self, "split_start", 0) and (tv_loss_splited < tv_loss_now or pd < P / 2):
+        if self.iter > getattr(self, "split_start", 0) and (
+            tv_loss_splited < tv_loss_now or pd < P / 2
+        ):
             # split_rate = 4
             # if self.iter and (ps > P * split_rate or pd < P / split_rate):
             self.split_iters.append(self.iter)
@@ -459,14 +461,16 @@ class DiscreteDistributionOutput(nn.Module):
         # self.multi_out_conv1x1 = Conv2dMixedPrecision(
         #     self.conv_inc, k * predict_c, (1, 1), bias=False
         # )
-        self.multi_out_conv1x1 =  AdaptConv2d(
-            self.conv_inc,
-            k * predict_c,
-            (1, 1),
-            bias=False,
-            se_hidden_layers=self.adapt_conv,
-        ) if self.adapt_conv else Conv2dMixedPrecision(
-             self.conv_inc, k * predict_c, (1, 1), bias=False
+        self.multi_out_conv1x1 = (
+            AdaptConv2d(
+                self.conv_inc,
+                k * predict_c,
+                (1, 1),
+                bias=False,
+                se_hidden_layers=self.adapt_conv,
+            )
+            if self.adapt_conv
+            else Conv2dMixedPrecision(self.conv_inc, k * predict_c, (1, 1), bias=False)
         )
         self.loss_func = loss_func
         self.distance_func = distance_func

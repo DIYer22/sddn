@@ -12,7 +12,7 @@ if __name__ == "__main__":
     class GeneratorModel:
         def __init__(self, k=100):
             self.k = k
-            self.param = np.random.random((k, 2))
+            self.param = np.random.random((k, 2)) * 2 - 1
             self.sdd = SplitableDiscreteDistribution(k)
 
         def train(self, inp):
@@ -40,19 +40,29 @@ if __name__ == "__main__":
             return self.k[idxs]
 
     dist = get_test_dist(50)
+
+    k = 1000
+    itern = 600
+    batch = 40
+
     # densty = boxx.resize(sda.astronaut(), (50, 50)).mean(-1)
-    densty = cv2.resize(
-        imread(
-            "/home/dl/research/discrete_distribution/info/asset/density/ddn-density-256.png"
-        ),
-        (256, 256),
-        interpolation=cv2.INTER_AREA,
-    ).mean(-1)
-    densty = densty / densty.sum()
-    dist = DistributionByDensityArray(densty)
+    # densty = cv2.resize(
+    #     imread(
+    #         "/home/dl/research/discrete_distribution/info/asset/density/ddn-density-256.png"
+    #     ),
+    #     (256, 256),
+    #     interpolation=cv2.INTER_AREA,
+    # ).mean(-1)
+    # densty = densty / densty.sum()
+    # dist = DistributionByDensityArray(densty)
     k = 5000
     itern = 6000
     batch = 40
+
+    k = 5000
+    itern = 50000
+    batch = 2
+
     gen = GeneratorModel(k)
     sdd = gen.sdd
 

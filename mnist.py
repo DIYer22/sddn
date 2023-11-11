@@ -417,6 +417,7 @@ if __name__ == "__main__":
     args, argkv = boxx.getArgvDic()
     # In[ ]:
     basec = 32
+    outputk = 64
     stackn = 16
     repeatn = 10
     batch_size = 8  # int(4096 // (stackn * repeatn)) // 2
@@ -446,8 +447,18 @@ if __name__ == "__main__":
         # DiscreteDistributionOutput.l1_loss =True
         DiscreteDistributionOutput.learn_residual = False
         diverge_shaping_rate = 0
-        DiscreteDistributionOutput.adapt_conv = 3
-        task = "mnist_diverge.shaping0_wo.res_3000w-adapt.conv3-wo.sigmod"
+        DiscreteDistributionOutput.adapt_conv = 0
+        task = "mnist_diverge.shaping0_wo.res_3000w-adapt.conv0"
+    if "k8" and 1:
+        dumpn = 20
+        outputk = 8
+        repeatn = 10
+        DiscreteDistributionOutput.learn_residual = False
+        diverge_shaping_rate = 0
+        DiscreteDistributionOutput.adapt_conv = 0
+        chain_dropout = 0.0
+        DiscreteDistributionOutput.chain_dropout = chain_dropout
+        task = f"mnist_outputk{outputk}_repeatn{repeatn}_chain.dropout{chain_dropout}"
 
     if argkv.get("debug"):
         debug = True
@@ -518,6 +529,7 @@ if __name__ == "__main__":
         class_n=len(dataset.class_to_idx),
         leak_choice=True,
         basec=basec,
+        k=outputk,
     )
     ddn_seqen = [gen_ddn() for _ in range(stackn)]
     ddn = ddn_seqen[0]
