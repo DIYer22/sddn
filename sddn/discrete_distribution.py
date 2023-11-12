@@ -577,6 +577,9 @@ class DiscreteDistributionOutput(nn.Module):
             if len(idx_ks) == d["output_level"]:
                 if "target" in d:  # find nearst code to target
                     idx_k = distance_matrix.argmin(1)  # .detach().cpu().numpy()
+                elif "sampler" in d:  # guided sampler
+                    d["output"] = outputs
+                    idx_k = d["sampler"](d)
                 else:  # random sample
                     idx_k = torch.randint(0, self.k, (b,))
                 idx_ks.append(idx_k)
