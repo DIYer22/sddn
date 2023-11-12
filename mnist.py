@@ -340,7 +340,6 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-            # DiscreteDistributionOutput.try_split_all()
             DiscreteDistributionOutput.try_split_all(optimizer)
 
             progress_bar.update(1)
@@ -450,7 +449,7 @@ if __name__ == "__main__":
         DiscreteDistributionOutput.adapt_conv = 0
         task = "mnist_diverge.shaping0_wo.res_3000w-adapt.conv0"
     if "k8" and 1:
-        dumpn = 20
+        # dumpn = 20
         outputk = 8
         repeatn = 10
         DiscreteDistributionOutput.learn_residual = False
