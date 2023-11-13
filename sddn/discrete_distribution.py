@@ -707,7 +707,7 @@ if __name__ == "__main__":
 
     SplitableDiscreteDistribution.test()
     if 0:
-        from torchvision.datasets import cifar
+        import torchvision.datasets
 
         transform01 = torchvision.transforms.Compose(
             [
@@ -716,7 +716,7 @@ if __name__ == "__main__":
                 torchvision.transforms.Normalize((0.5), (0.5)),
             ]
         )
-        dataset = cifar.CIFAR10(
+        dataset = torchvision.datasets.cifar.CIFAR10(
             os.path.expanduser("~/dataset"),
             train=True,
             transform=transform01,
