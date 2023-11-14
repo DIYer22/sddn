@@ -395,9 +395,10 @@ def generate_image(model, batch_size, channel, size):
     model.eval()
     with torch.no_grad():
         classn = len(dataset.classes)
+        samples_per_class = 10
         classi = (
             torch.Tensor(
-                list(range(classn)) * (batch_size // classn + 1),
+                list(range(classn)) * samples_per_class,
             )
             .long()
             .reshape(-1, classn)
