@@ -9,6 +9,8 @@ if __name__ == "__main__":
     from distribution_playground.source_distribution import *
     from sddn import SplitableDiscreteDistribution
 
+    no_split_for_ablation = ""
+
     class GeneratorModel:
         def __init__(self, k=100):
             self.k = k
@@ -19,13 +21,17 @@ if __name__ == "__main__":
             gts = inp["gts"]
             # xys = inp["xys"]
             y = self.param[None]
-            loss_matrix = np.abs(y - gts[:, None]).sum(-1)
-            i_nears = self.sdd.add_loss_matrix(loss_matrix)["i_nears"]
+            loss_matrix = np.abs(y - gts[:, None]).sum(-1)  # b, k
+            if no_split_for_ablation:
+                i_nears = loss_matrix.argmin(1)
+            else:
+                i_nears = self.sdd.add_loss_matrix(loss_matrix)["i_nears"]
 
-            splited = self.sdd.try_split()
-            if splited:
-                i_split, i_disapear = splited["i_split"], splited["i_disapear"]
-                self.param[i_disapear] = self.param[i_split]
+                splited = self.sdd.try_split()
+                if splited:
+                    i_split, i_disapear = splited["i_split"], splited["i_disapear"]
+                    self.param[i_disapear] = self.param[i_split]
+
             # backward
             for i_near, gt in zip(i_nears, gts):
                 to_gt = gt - self.param[i_near]
@@ -39,6 +45,7 @@ if __name__ == "__main__":
             idxs = np.random.choice(self.k, n, replace=n > self.k)
             return self.k[idxs]
 
+    no_split_for_ablation = "_no.split"
     bins = (100,) * 2  # 10000 可以扫码
     # bins = (128,) * 2
     # bins = (256,) * 2
@@ -74,15 +81,15 @@ if __name__ == "__main__":
     itern = 6000
     batch = 40
 
-    k = 5000
-    itern = 25000
+    k = 10000
+    itern = 50000
     batch = 2
 
     # itern = 6
 
     dirr = (
         os.path.expanduser("~/junk/ddn_toy_exp/")
-        + f"bin{bins[0]}_k{k}_itern{itern}_batch{batch}/"
+        + f"bin{bins[0]}_k{k}_itern{itern}_batch{batch}{no_split_for_ablation}/"
     )
     os.makedirs(dirr, exist_ok=True)
     strr = dirr + "\n"
@@ -148,9 +155,19 @@ if __name__ == "__main__":
                 )
                 d_gen = density_to_rgb(dist.divergence(gen.param)["estimated"])
                 # show(d_gt,d_gen,d_sample, figsize=(8,8))
-                imsave(dirr + f"2d_density.{coveri}_{name}_gt.png", d_gt)
-                imsave(dirr + f"2d_density.{coveri}_{name}_sample.png", d_sample)
-                imsave(dirr + f"2d_density.{coveri}_{name}_gen.png", d_gen)
+                imsave(
+                    dirr + f"2d_density.{coveri}_{name}_gt{no_split_for_ablation}.png",
+                    d_gt,
+                )
+                imsave(
+                    dirr
+                    + f"2d_density.{coveri}_{name}_sample{no_split_for_ablation}.png",
+                    d_sample,
+                )
+                imsave(
+                    dirr + f"2d_density.{coveri}_{name}_gen{no_split_for_ablation}.png",
+                    d_gen,
+                )
             print("Save to:", dirr)
 
             diverg_gt = dist.divergence(dist.sample(k))
