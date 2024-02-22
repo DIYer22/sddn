@@ -533,7 +533,7 @@ class DiscreteDistributionOutput(nn.Module):
         if self.training:  # train
             # del outputs
             # torch.cuda.empty_cache()
-            if "max_distance" in d:  # random sample
+            if "max_distance" in d:  # random sample for DivergeShaping
                 idx_k = torch.randint(0, self.k, (b,))
                 predicts = predicts_resized = outputs[torch.arange(b), idx_k]
                 if self.size != d["random_start_size"]:
