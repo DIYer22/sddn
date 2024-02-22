@@ -45,7 +45,7 @@ if __name__ == "__main__":
             idxs = np.random.choice(self.k, n, replace=n > self.k)
             return self.k[idxs]
 
-    no_split_for_ablation = "_no.split"
+    # no_split_for_ablation = "_no.split"
     bins = (100,) * 2  # 10000 可以扫码
     # bins = (128,) * 2
     # bins = (256,) * 2
@@ -77,13 +77,13 @@ if __name__ == "__main__":
     batch = 40
 
     # densty = boxx.resize(sda.astronaut(), (50, 50)).mean(-1)
-    k = 5000
-    itern = 6000
-    batch = 40
+    # k = 5000
+    # itern = 6000
+    # batch = 40
 
-    k = 10000
-    itern = 50000
-    batch = 2
+    # k = 10000
+    # itern = 50000
+    # batch = 2
 
     # itern = 6
 
