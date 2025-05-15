@@ -21,6 +21,7 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 tensor2rgb = lambda x: tprgb((x + 1) * 128).clip(0, 255).astype(np.uint8)
 showt = lambda *l, **kv: show(*l, tensor2rgb, **kv)
 
+
 # In[ ]:
 def show_images(images, title="show"):
     """Shows the provided images as sub-pictures in a square"""

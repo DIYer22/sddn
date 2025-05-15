@@ -56,7 +56,6 @@ if __name__ == "__main__":
 
     maps = glob(os.path.expanduser("~/discrete_distribution/info/asset/density/*.png"))
     for dmap in maps:
-
         densty = cv2.resize(
             imread(dmap),
             bins,
@@ -130,7 +129,7 @@ if __name__ == "__main__":
         # print("near2.sum(), iter=", sdd.near2.sum(), sdd.iter)
         globals().update(gen.sdd.__dict__)
         #     show - dist.divergence(gen.param[:100])
-        #%%
+        # %%
         if "save":
             # TODO: dump param and save checkpoint
 
