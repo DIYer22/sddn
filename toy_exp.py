@@ -4,17 +4,13 @@ import numpy as np
 
 if __name__ == "__main__":
     from boxx import *
-
-    # with boxx.impt("/home/dl/mygit/distribution_playground/"):
-    from distribution_playground.source_distribution import *
+    from distribution_playground import *
     from sddn import SplitableDiscreteDistribution
-
-    no_split_for_ablation = ""
 
     class GeneratorModel:
         def __init__(self, k=100):
             self.k = k
-            self.param = np.random.random((k, 2)) * 2 - 1
+            self.param = np.random.random((k, 2)) * 2 - 1  # init node in [-1, +1]
             self.sdd = SplitableDiscreteDistribution(k)
 
         def train(self, inp):
@@ -32,7 +28,7 @@ if __name__ == "__main__":
                     i_split, i_disapear = splited["i_split"], splited["i_disapear"]
                     self.param[i_disapear] = self.param[i_split]
 
-            # backward
+            # backward of gradient descent
             for i_near, gt in zip(i_nears, gts):
                 to_gt = gt - self.param[i_near]
                 lr = 0.2
@@ -45,46 +41,41 @@ if __name__ == "__main__":
             idxs = np.random.choice(self.k, n, replace=n > self.k)
             return self.k[idxs]
 
-    # no_split_for_ablation = "_no.split"
-    bins = (100,) * 2  # 10000 可以扫码
+    # experments hyper-parameters
+    bins = (100,) * 2  # 10000 could scan QR_code
     # bins = (128,) * 2
     # bins = (256,) * 2
-    distd = {}
 
-    distd["blurs"] = get_test_dist(bins[0])
-    dist = distd["blurs"]
-
-    maps = glob(os.path.expanduser("~/discrete_distribution/info/asset/density/*.png"))
-    for dmap in maps:
-        densty = cv2.resize(
-            imread(dmap),
-            bins,
-            interpolation=cv2.INTER_AREA,
-        )
-        if densty.ndim == 3:
-            densty = densty[..., 1]
-        eps = 1e-20
-        densty = densty / densty.sum()
-        densty += eps
-        densty = densty / densty.sum()
-        dist = DistributionByDensityArray(densty)
-
-        distd[filename(dmap)] = dist
-
-    k = 1000
-    itern = 600
+    k = 2000
+    itern = 1800
+    # itern = 600
     batch = 40
+    framen = 96
+    fps = 24
 
-    # densty = boxx.resize(sda.astronaut(), (50, 50)).mean(-1)
+    # density = boxx.resize(sda.astronaut(), (50, 50)).mean(-1)
     # k = 5000
     # itern = 6000
     # batch = 40
+    k10000 = False
+    if k10000:
+        k = 10000
+        itern = 10000
+        batch = 10
+        framen = 1000
+        fps = 50
 
-    # k = 10000
-    # itern = 50000
-    # batch = 2
-
-    # itern = 6
+    no_split_for_ablation = ""
+    # no_split_for_ablation = "_no.split"  # without split-and-prune tag
+    density_name_seq = [
+        "gaussian",
+        "blur_circles",
+        "QR_code",
+        "sprial",
+        "words",
+        "gaussian",
+        "uniform",
+    ]
 
     dirr = (
         os.path.expanduser("~/junk/ddn_toy_exp/")
@@ -94,13 +85,19 @@ if __name__ == "__main__":
     strr = dirr + "\n"
     kls = []
 
-    names = list(distd)
-    names = __import__("brainpp_yl").split_keys_by_replica(names)
-    # for name,dist in distd.items():
-    for name in names:
-        print(name, dirr)
-        dist = distd[name]
-        gen = GeneratorModel(k)
+    gen = GeneratorModel(k)
+    previous_name = "uniform"
+    frames_data_root = os.path.expanduser(
+        f"~/junk/ddn_toy_exp/frames_bin{bins[0]}_k{k}_itern{itern}_batch{batch}{no_split_for_ablation}"
+    )
+    for namei, name in enumerate(density_name_seq):
+        density_map = density_map_builders[name](bins)
+        dist = DistributionByDensityArray(density_map["density"])
+        if "reset_count":
+            last_param = gen.param
+            gen = GeneratorModel(k)
+            if "conintue_last_param":
+                gen.param = last_param
         sdd = gen.sdd
 
         diver_gt = dist.divergence(dist.sample(k))
@@ -110,11 +107,16 @@ if __name__ == "__main__":
             diver = dist.divergence(gen.param)
             if "yanglei-docker" not in boxx.sysi.host:
                 (shows if big else show)(
-                    uint8, histEqualize, diver, dist.density, diver_gt
+                    uint8, histEqualize, diver, dist.density, diver_gt, density_to_rgb
                 )
             print(dist.str_divergence(diver))
 
+        frames_data_dir = os.path.expanduser(
+            f"{frames_data_root}/data/{namei}_{previous_name}-to-{name}"
+        )
+        os.makedirs(frames_data_dir, exist_ok=True)
         for iteri in range(itern):
+            # print(iteri)
             gts = dist.sample(batch)
             inp = dict(gts=gts)
             gen.train(inp)
@@ -122,7 +124,15 @@ if __name__ == "__main__":
                 "show log",
             ) % (itern // 5):
                 log()
-            # break
+            if not increase(
+                "dump frame data",
+            ) % (itern // framen):
+                saveData(
+                    dist.divergence(gen.param),
+                    frames_data_dir + p / f"/{previous_name}-to-{name}_i{iteri:06}.pkl",
+                )
+        previous_name = name
+        # break
         log()
         print("gt:", dist.str_divergence(dist.sample(k)))
         # sdd.plot_dist()
@@ -149,9 +159,7 @@ if __name__ == "__main__":
                 1,
             ):
                 d_gt = density_to_rgb(dist.density)
-                d_sample = density_to_rgb(
-                    dist.divergence(dist.sample(k * 2))["estimated"]
-                )
+                d_sample = density_to_rgb(dist.divergence(dist.sample(k))["estimated"])
                 d_gen = density_to_rgb(dist.divergence(gen.param)["estimated"])
                 # show(d_gt,d_gen,d_sample, figsize=(8,8))
                 imsave(
@@ -182,3 +190,46 @@ if __name__ == "__main__":
         logp,
     )
 # cmap = ["gist_earth", "turbo",  "viridis"][-1]
+# %%
+if "convert_to_png":  # frames_data_root, k, bins = '.', 10000, [100,100]
+    from distribution_playground import density_to_rgb, density_map_builders
+    from boxx import *
+
+    gt_density_maps = {n: f(bins) for n, f in density_map_builders.items()}
+
+    print(frames_data_root)
+    globp = f"{frames_data_root}/data/[12345]_*/*.pkl"
+    png_dir = frames_data_root + "/png"
+    os.system(f"rm {png_dir}/*.png")
+    os.makedirs(png_dir, exist_ok=True)
+    pklps = sorted(glob(globp))
+    for pkli, pklp in enumerate(pklps):
+        divergence = loadData(pklp)
+        fname = filename(pklp)
+        iteri = int(fname[fname.rindex("_i") + 2 :])
+        target_name = fname[fname.index("-to-") + 4 : fname.rindex("_i")]
+        source_name = fname[: fname.index("-to-")]
+        target_density_map = gt_density_maps[target_name]
+        vis_max_probability = gt_density_maps["gaussian"]["density"].max() * 1.5
+        # vis_max_probability = target_density_map["density"].max()
+        # minimum probability 1.5/k to make density distinguishable
+        vis_max_probability = max(vis_max_probability, 1.5 / k)
+        vis = density_to_rgb(divergence["estimated"], vis_max_probability)
+        if "add_target":
+            vis_target = density_to_rgb(
+                target_density_map["density"], vis_max_probability
+            )
+            pad = bins[0] // 32
+            vis = np.concatenate([vis, np.ones_like(vis)[:, :pad] * 255, vis_target], 1)
+            vis = padding(vis, pad)
+            vis[(vis == 0).all(-1)] = 255
+        png_path = f"{png_dir}/{pkli:05}_{basename(pklp.replace('.pkl', '.png'))}"
+        imsave(png_path, vis)
+    show - vis
+
+    png_paths = sorted(glob(dirname(png_path) + "/*.png"))
+    gif_path = frames_data_root + "/2d-density-estimation-DDN.gif"
+    import imageio
+
+    imageio.mimsave(gif_path, [imread(pa) for pa in png_paths], fps=fps, loop=0)
+    print("Saving GIF to:", gif_path)
