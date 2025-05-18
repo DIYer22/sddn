@@ -1,57 +1,64 @@
 #!/usr/bin/env python3
 import boxx
 import numpy as np
+from sddn import SplitableDiscreteDistribution
+
+
+class GeneratorModel:
+    def __init__(self, k=100):
+        self.k = k
+        self.param = (
+            np.random.random((k, 2)) * 2 - 1
+        )  # init nodes in uniform of [-1, +1]
+        self.sdd = SplitableDiscreteDistribution(k)
+
+    def train(self, inp):
+        gts = inp["gts"]
+        # xys = inp["xys"]
+        y = self.param[None]
+        loss_matrix = np.abs(y - gts[:, None]).sum(-1)  # b, k
+        if inp.get("no_split_for_ablation"):
+            i_nears = loss_matrix.argmin(1)
+        else:
+            i_nears = self.sdd.add_loss_matrix(loss_matrix)["i_nears"]
+
+            splited = self.sdd.try_split()
+            if splited:
+                i_split, i_disapear = splited["i_split"], splited["i_disapear"]
+                self.param[i_disapear] = self.param[i_split]
+
+        # backward of gradient descent
+        for i_near, gt in zip(i_nears, gts):
+            to_gt = gt - self.param[i_near]
+            lr = 0.2
+            self.param[i_near] += 2 * (to_gt) * lr
+            # lr = 0.05
+            # self.param[i_near] += to_gt/np.linalg.norm(to_gt) * lr
+
+    def sample(self, n=None):
+        n = n or self.k
+        idxs = np.random.choice(self.k, n, replace=n > self.k)
+        return self.k[idxs]
+
 
 if __name__ == "__main__":
     from boxx import *
-    from distribution_playground import *
-    from sddn import SplitableDiscreteDistribution
-
-    class GeneratorModel:
-        def __init__(self, k=100):
-            self.k = k
-            self.param = np.random.random((k, 2)) * 2 - 1  # init node in [-1, +1]
-            self.sdd = SplitableDiscreteDistribution(k)
-
-        def train(self, inp):
-            gts = inp["gts"]
-            # xys = inp["xys"]
-            y = self.param[None]
-            loss_matrix = np.abs(y - gts[:, None]).sum(-1)  # b, k
-            if no_split_for_ablation:
-                i_nears = loss_matrix.argmin(1)
-            else:
-                i_nears = self.sdd.add_loss_matrix(loss_matrix)["i_nears"]
-
-                splited = self.sdd.try_split()
-                if splited:
-                    i_split, i_disapear = splited["i_split"], splited["i_disapear"]
-                    self.param[i_disapear] = self.param[i_split]
-
-            # backward of gradient descent
-            for i_near, gt in zip(i_nears, gts):
-                to_gt = gt - self.param[i_near]
-                lr = 0.2
-                self.param[i_near] += 2 * (to_gt) * lr
-                # lr = 0.05
-                # self.param[i_near] += to_gt/np.linalg.norm(to_gt) * lr
-
-        def sample(self, n=None):
-            n = n or self.k
-            idxs = np.random.choice(self.k, n, replace=n > self.k)
-            return self.k[idxs]
+    from distribution_playground import *  # pip install distribution_playground
 
     # experments hyper-parameters
-    bins = (100,) * 2  # 10000 could scan QR_code
+
+    bins = (
+        100,
+    ) * 2  # Quantization to a discrete distribution of h and w resolutions(i.e. shape), 10000 could scan QR_code
     # bins = (128,) * 2
     # bins = (256,) * 2
 
-    k = 2000
-    itern = 1800
+    k = 2000  # outputk
+    itern = 1800  # iter number of each density
     # itern = 600
     batch = 40
-    framen = 96
-    fps = 24
+    framen = 96  # GIF frames number of each density
+    fps = 24  # for GIF play
 
     # density = boxx.resize(sda.astronaut(), (50, 50)).mean(-1)
     # k = 5000
@@ -74,12 +81,14 @@ if __name__ == "__main__":
         "sprial",
         "words",
         "gaussian",
-        "uniform",
+        "uniform",  # the param initial from uniform, better end by uniform for close loop
     ]
+    output_root = os.path.expanduser("~/junk/ddn_toy_exp")
+    # output_root = os.path.expanduser("/tmp/junk/ddn_toy_exp")
 
     dirr = (
-        os.path.expanduser("~/junk/ddn_toy_exp/")
-        + f"bin{bins[0]}_k{k}_itern{itern}_batch{batch}{no_split_for_ablation}/"
+        output_root
+        + f"/bin{bins[0]}_k{k}_itern{itern}_batch{batch}{no_split_for_ablation}/"
     )
     os.makedirs(dirr, exist_ok=True)
     strr = dirr + "\n"
@@ -88,7 +97,7 @@ if __name__ == "__main__":
     gen = GeneratorModel(k)
     previous_name = "uniform"
     frames_data_root = os.path.expanduser(
-        f"~/junk/ddn_toy_exp/frames_bin{bins[0]}_k{k}_itern{itern}_batch{batch}{no_split_for_ablation}"
+        f"{output_root}/frames_bin{bins[0]}_k{k}_itern{itern}_batch{batch}{no_split_for_ablation}"
     )
     for namei, name in enumerate(density_name_seq):
         density_map = density_map_builders[name](bins)
@@ -105,26 +114,25 @@ if __name__ == "__main__":
 
         def log(big=False):
             diver = dist.divergence(gen.param)
-            if "yanglei-docker" not in boxx.sysi.host:
-                (shows if big else show)(
-                    uint8, histEqualize, diver, dist.density, diver_gt, density_to_rgb
-                )
-            print(dist.str_divergence(diver))
+            (shows if big else show)(
+                uint8, histEqualize, diver, dist.density, diver_gt, density_to_rgb
+            )
+            print("divergence:", dist.str_divergence(diver))
 
         frames_data_dir = os.path.expanduser(
             f"{frames_data_root}/data/{namei}_{previous_name}-to-{name}"
         )
         os.makedirs(frames_data_dir, exist_ok=True)
-        for iteri in range(itern):
+        for iteri in range(itern):  # train loop
             # print(iteri)
             gts = dist.sample(batch)
-            inp = dict(gts=gts)
+            inp = dict(gts=gts, no_split_for_ablation=no_split_for_ablation)
             gen.train(inp)
             if not increase(
                 "show log",
             ) % (itern // 5):
                 log()
-            if not increase(
+            if framen and not increase(
                 "dump frame data",
             ) % (itern // framen):
                 saveData(
@@ -140,7 +148,7 @@ if __name__ == "__main__":
         globals().update(gen.sdd.__dict__)
         #     show - dist.divergence(gen.param[:100])
         # %%
-        if "save":
+        if "save vis and divergence":
             # TODO: dump param and save checkpoint
 
             max_v = dist.density.max()
@@ -191,7 +199,7 @@ if __name__ == "__main__":
     )
 # cmap = ["gist_earth", "turbo",  "viridis"][-1]
 # %%
-if "convert_to_png":  # frames_data_root, k, bins = '.', 10000, [100,100]
+if "convert_to_png_frames_and_gif":  # frames_data_root, k, bins = '.', 10000, [100,100]
     from distribution_playground import density_to_rgb, density_map_builders
     from boxx import *
 
@@ -212,8 +220,10 @@ if "convert_to_png":  # frames_data_root, k, bins = '.', 10000, [100,100]
         target_density_map = gt_density_maps[target_name]
         vis_max_probability = gt_density_maps["gaussian"]["density"].max() * 1.5
         # vis_max_probability = target_density_map["density"].max()
-        # minimum probability 1.5/k to make density distinguishable
-        vis_max_probability = max(vis_max_probability, 1.5 / k)
+
+        vis_max_probability = max(
+            vis_max_probability, 1.5 / k
+        )  # minimum probability 1.5/k to make density distinguishable
         vis = density_to_rgb(divergence["estimated"], vis_max_probability)
         if "add_target":
             vis_target = density_to_rgb(
