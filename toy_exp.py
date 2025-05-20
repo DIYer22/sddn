@@ -140,13 +140,11 @@ if __name__ == "__main__":
                     frames_data_dir + p / f"/{previous_name}-to-{name}_i{iteri:06}.pkl",
                 )
         previous_name = name
-        # break
         log()
         print("gt:", dist.str_divergence(dist.sample(k)))
         # sdd.plot_dist()
         # print("near2.sum(), iter=", sdd.near2.sum(), sdd.iter)
-        globals().update(gen.sdd.__dict__)
-        #     show - dist.divergence(gen.param[:100])
+        # globals().update(gen.sdd.__dict__)
         # %%
         if "save vis and divergence":
             # TODO: dump param and save checkpoint
@@ -190,8 +188,6 @@ if __name__ == "__main__":
             kls.append([diverg_gen["kl"], diverg_gt["kl"]])
             strr += f"{name}:\n\tgen:{dist.str_divergence(diverg_gen)}\n\tgt:{dist.str_divergence(diverg_gt)}\n\n"
 
-        # if "QR" in name:
-        #     1/0
     logp = dirr + "KL.gen%s_gt%s.txt" % tuple(np.mean(kls, 0).round(3))
     openwrite(
         strr,
