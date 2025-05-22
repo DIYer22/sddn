@@ -314,7 +314,9 @@ class SplitableModuleMixin:
                 for optimizer in optimizers:
                     if weight in optimizer.state:
                         for k in optimizer.state[weight]:
-                            if optimizer.state[weight][k].shape == weight.shape:
+                            state_value = optimizer.state[weight][k]
+                            # avoid scalar state
+                            if isinstance(state_value, torch.Tensor) and state_value.shape == weight.shape:
                                 optimizer.state[weight][k][
                                     i_disapear * predict_c : i_disapear * predict_c
                                     + predict_c
