@@ -1,8 +1,9 @@
-import boxx
-from boxx import npa
-import numpy as np
-import torch
 import cv2
+import torch
+import boxx
+import itertools
+import numpy as np
+from boxx import npa
 
 k8_order = range(8)
 
@@ -32,14 +33,36 @@ def draw_board(arr, color=(0, 0, 0), b=None, leveli=None):
 
 def vis_tree_latent_recursively(model, leveln=3):
     # TODO: too slow, using outputs of last layer and pre batch generate then cache
+    is_training = model.training
+    model.eval()
+    using_pre_eval_cache = True
+    using_pre_eval_cache = False
+    if using_pre_eval_cache:
+        all_idx_ks = list(
+            npa(list(itertools.product(*[list(range(8))] * (leveln - 1)))).T
+        )
+        all_idx_ks += [all_idx_ks[0] * 0]
+        d_cache = model(dict(idx_ks=all_idx_ks))
+        boxx.g()
+
+    npa(list(itertools.product(*[list(range(8))] * 3))).T
+
     def _build_vis_tree_latent_recursively(idx_ks=None, parent=None):
         idx_ks = idx_ks or []
         leveli = len(idx_ks)
         if leveli == leveln:
             d = dict(idx_ks=npa(idx_ks + idx_ks[-1:] * 10)[:, None])
-            model(d)
-            parent["predicts"] = t2np(torch.cat(d["predicts"]))[:leveln]
-            parent["img"] = draw_board(t2np(d["predicts"][leveli - 1]))
+            if using_pre_eval_cache:
+                flat_idx = int("".join(map(str, idx_ks[: leveln - 1])), 8)
+                predicts = [
+                    pre[flat_idx][None] for pre in d_cache["predicts"][: leveln - 1]
+                ]
+                predicts += [d_cache["outputs"][leveln - 1][flat_idx][idx_ks[-1]][None]]
+            else:
+                model(d)
+                predicts = d["predicts"]
+            parent["predicts"] = t2np(torch.cat(predicts))[:leveln]
+            parent["img"] = draw_board(t2np(predicts[leveli - 1]))
             return parent
         for k in range(8):
             idx_ks_ = idx_ks + [k]
@@ -65,9 +88,12 @@ def vis_tree_latent_recursively(model, leveln=3):
         ][leveli]
         # color = [(64,)*3,(128,)*3,(255,)*3,][leveli]
         if leveli:
-            img_this = np.mean([parent[i]["predicts"][leveli - 1] for i in range(8)], 0)
+            # img_this = np.mean([parent[i]["predicts"][leveli - 1] for i in range(8)], 0)
+            img_this = parent[0]["predicts"][leveli - 1]
         else:
-            img_this = np.mean([parent[i]["predicts"][0] for i in range(8)], 0)
+            # level0 is mean of level1 outputs
+            # img_this = np.mean([parent[i]["predicts"][0] for i in range(8)], 0)
+            img_this = np.mean([parent[i]["predicts"][leveln - 1] for i in range(8)], 0)
         img_this = draw_board(img_this, color, int(round(img_this.shape[0] * b_rate)))
         img_resized = cv2.resize(img_this, (w, h), interpolation=cv2.INTER_NEAREST)
         imgs = imgs[:4] + [img_resized] + imgs[4:]
@@ -77,8 +103,6 @@ def vis_tree_latent_recursively(model, leveln=3):
         parent["predicts"] = npa([parent[i]["predicts"] for i in range(8)]).mean(0)
         return parent
 
-    is_training = model.training
-    model.eval()
     root = {}
     _build_vis_tree_latent_recursively(parent=root)
     # img = root["img"]
