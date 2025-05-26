@@ -14,7 +14,9 @@ import torchvision
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torchvision.datasets import MNIST
-from tqdm.notebook import tqdm
+
+# from tqdm.notebook import tqdm
+from tqdm import tqdm
 
 # In[ ]:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -281,13 +283,11 @@ class DiscreteDistributionNetwork(nn.Module):
 
 # In[ ]:
 class HierarchicalDiscreteDistributionNetwork(nn.Module):
-    def __init__(
-        self,
-        ddn_seqen,
-    ):
+    def __init__(self, ddn_seqen, repeatn=5):
         super().__init__()
         # TODO if different stage k middle_c last_c, insert a transfer module
         self.ddn_seqen = nn.Sequential(*ddn_seqen)
+        self.repeatn = repeatn
 
     def set_distance_func(self, distance_func):
         distance_func
@@ -297,7 +297,7 @@ class HierarchicalDiscreteDistributionNetwork(nn.Module):
 
     def forward(self, d):
         for stacki in range(len(self.ddn_seqen)):
-            for repeati in range(repeatn):
+            for repeati in range(self.repeatn):
                 d = self.ddn_seqen[stacki](d)
         return d
 
@@ -364,6 +364,21 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
                 )
             if not global_step % (shots // dataloader.batch_size // dumpn):
                 torch.save(model, f"{path_prifix}/shot{shot_num}.pt")
+            if outputk8_for_vis:
+                from sddn.vis_tree_latent_recursively import vis_tree_latent_recursively
+
+                root = vis_tree_latent_recursively(model, leveln=3)
+                latent_vis = root["img"]
+                latent_vis_path = (
+                    f"{latent_vis_dir}/shot{shot_num:09}_loss{round(float(loss),5)}.png"
+                )
+                boxx.setTimeout(
+                    lambda: boxx.imsave(
+                        latent_vis_path,
+                        latent_vis,
+                    )
+                )
+
             if shot_num >= shots:
                 break
             global_step += 1
@@ -436,10 +451,13 @@ if __name__ == "__main__":
         diverge_shaping_rate = 0
         DiscreteDistributionOutput.adapt_conv = 0
         task = "mnist_diverge.shaping0_wo.res_3000w-adapt.conv0"
-    if "k8" and 1:
+    outputk8_for_vis = True
+    if outputk8_for_vis:
         # dumpn = 20
+        basec = 32
+        shots = "300w"
         outputk = 8
-        repeatn = 10
+        repeatn = 3
         DiscreteDistributionOutput.learn_residual = False
         diverge_shaping_rate = 0
         DiscreteDistributionOutput.adapt_conv = 0
@@ -478,7 +496,9 @@ if __name__ == "__main__":
         os.system(f"ln -sf {path_prifix} /tmp/boxxTmp")
     if not os.path.exists("/tmp/boxxTmp/showtmp"):
         os.system(f"ln -sf {path_prifix} /tmp/boxxTmp/showtmp")
-
+    if outputk8_for_vis:
+        latent_vis_dir = f"{path_prifix}/latent_vis"
+        os.makedirs(latent_vis_dir, exist_ok=True)
     if data == "cifar":
         transform01 = torchvision.transforms.Compose(
             [
@@ -520,7 +540,7 @@ if __name__ == "__main__":
     )
     ddn_seqen = [gen_ddn() for _ in range(stackn)]
     ddn = ddn_seqen[0]
-    network = HierarchicalDiscreteDistributionNetwork(ddn_seqen)
+    network = HierarchicalDiscreteDistributionNetwork(ddn_seqen, repeatn)
     network = network.to(device)
     model = network
     optimizer = torch.optim.Adam(
@@ -543,3 +563,12 @@ if __name__ == "__main__":
 
     # import torchsummary
     # torchsummary.summary(network.eval().ddn_seqen[0], (channeln, 32, 32))
+
+    # %%
+    if outputk8_for_vis and 0:  # GIF file size too large
+        png_paths = sorted(glob(latent_vis_dir + "/*.png"))
+        gif_path = dirname(latent_vis_dir) + "/DDN_latent_vis.gif"
+        import imageio
+
+        imageio.mimsave(gif_path, [imread(pa) for pa in png_paths], fps=50, loop=0)
+        print("Saving GIF to:", gif_path)
