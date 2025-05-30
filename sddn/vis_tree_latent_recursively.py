@@ -44,6 +44,9 @@ def vis_tree_latent_recursively(model, leveln=3):
         all_idx_ks += [all_idx_ks[0] * 0]
         d_cache = model(dict(idx_ks=all_idx_ks))
         boxx.g()
+        # TODO: different batch size has different result with same idx_ks, except first layer outputs and the results conditioned on first output of first layer
+        # d_77 = tree/model(dict(idx_ks=[ks[:] for ks in all_idx_ks]));outputs_77 = shows/uint8(norma-npa*d_77["outputs"][-1][-1])
+        # d_77 = tree/model(dict(idx_ks=[ks[-1:] for ks in all_idx_ks]));outputs_77 = shows/uint8(norma-npa*d_77["outputs"][-1][-1])
 
     npa(list(itertools.product(*[list(range(8))] * 3))).T
 
@@ -51,14 +54,16 @@ def vis_tree_latent_recursively(model, leveln=3):
         idx_ks = idx_ks or []
         leveli = len(idx_ks)
         if leveli == leveln:
-            d = dict(idx_ks=npa(idx_ks + idx_ks[-1:] * 10)[:, None])
             if using_pre_eval_cache:
                 flat_idx = int("".join(map(str, idx_ks[: leveln - 1])), 8)
                 predicts = [
                     pre[flat_idx][None] for pre in d_cache["predicts"][: leveln - 1]
                 ]
-                predicts += [d_cache["outputs"][leveln - 1][flat_idx][idx_ks[-1]][None]]
+                predicts += [
+                    d_cache["outputs"][leveln - 1][flat_idx][idx_ks[leveln - 1]][None]
+                ]
             else:
+                d = dict(idx_ks=npa(idx_ks + idx_ks[-1:] * 10)[:, None])
                 model(d)
                 predicts = d["predicts"]
             parent["predicts"] = t2np(torch.cat(predicts))[:leveln]
@@ -118,6 +123,7 @@ if __name__ == "__main__":
     ptp = (
         "/home/yl/ddn/asset/2023-11-07-11_47_45-mnist_outputk8_repeatn5-shot14959968.pt"
     )
+    ptp = "/home/yl/ddn/asset/2025-05-26-00_16_11-mnist_outputk8_repeatn3_chain.dropout0.0-shot2991712.pt"
 
     model = torch.load(ptp).eval()
     model.repeatn = 3
