@@ -14,9 +14,12 @@ import torchvision
 from torchvision import transforms
 from torch.utils.data import DataLoader
 from torchvision.datasets import MNIST
-
-# from tqdm.notebook import tqdm
 from tqdm import tqdm
+
+from sddn import DiscreteDistributionOutput
+from sddn import sinusoidal_embedding
+
+DiscreteDistributionOutput.inits.clear()
 
 # In[ ]:
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -93,15 +96,6 @@ def MyTinyUp(size, in_c):
         MyConv((in_c // 2, size, size), in_c // 2, in_c // 4),
         MyConv((in_c // 4, size, size), in_c // 4, in_c // 4),
     )
-
-
-# In[ ]:
-try:
-    from sddn import DiscreteDistributionOutput
-    from sddn import diverge_shaping_manager, sinusoidal_embedding
-except ModuleNotFoundError:
-    pass
-DiscreteDistributionOutput.inits.clear()
 
 
 def linear_spatial_embedding(shape):
@@ -304,7 +298,7 @@ class HierarchicalDiscreteDistributionNetwork(nn.Module):
 
 # In[ ]:
 def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=device):
-    """Training loop for DDPM"""
+    """Training loop for DDN"""
 
     global_step = 0
     shot_num = 0
@@ -320,8 +314,7 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
             )
 
             # target = batchd["target"]
-            with diverge_shaping_manager(batchd, diverge_shaping_rate):
-                d = model(batchd)
+            d = model(batchd)
 
             loss = sum(d["losses"]) / len(d["losses"])
             optimizer.zero_grad()
@@ -364,7 +357,7 @@ def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=dev
                 )
             if not global_step % (shots // dataloader.batch_size // dumpn):
                 torch.save(model, f"{path_prifix}/shot{shot_num}.pt")
-            if outputk8_for_vis:
+            if outputk8_for_vis:  # save latent vis for every iter, very slow
                 from sddn.vis_tree_latent_recursively import vis_tree_latent_recursively
 
                 root = vis_tree_latent_recursively(model, leveln=3)
@@ -564,11 +557,18 @@ if __name__ == "__main__":
     # import torchsummary
     # torchsummary.summary(network.eval().ddn_seqen[0], (channeln, 32, 32))
 
-    # %%
-    if outputk8_for_vis and 0:  # GIF file size too large
-        png_paths = sorted(glob(latent_vis_dir + "/*.png"))
-        gif_path = dirname(latent_vis_dir) + "/DDN_latent_vis.gif"
-        import imageio
+"""
+# build video from latent vis pngs
+sudo apt install ffmpeg
+ffmpeg  -framerate 30 \
+        -pattern_type glob -i 'latent_vis/shot*_loss*.png' \
+        -stream_loop -1 -ss 1 -i ~/ws/ddn/asset/Thomas_J._Bergersen_-_Final_Frontier_\(Hydr0.org\).mp3 \
+        -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p \
+        -r 60 \
+        -c:a aac -b:a 192k \
+        -shortest \
+        -map 0:v:0 -map 1:a:0 \
+        latent_vis.mp4 -y
 
-        imageio.mimsave(gif_path, [imread(pa) for pa in png_paths], fps=50, loop=0)
-        print("Saving GIF to:", gif_path)
+BGM: https://fine.sunproxy.net/file/WEFjcUF4dTdnTCtwclZ3TzY1dUQzZjFBcithMkVMa0o2RWVWMjVsZzVwVHdHZURRWXlhWTBGOGkvQlVCRHB0cUtZZW9TRmNjNi9KS2ZnQ09Ucy9lcHZLR2RRSUtkQ3NJMUo4M0k2TnNhVDA9/Thomas_J._Bergersen_-_Final_Frontier_(Hydr0.org).mp3
+"""

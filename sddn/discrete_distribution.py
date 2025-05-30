@@ -11,7 +11,6 @@ Created on Tue Sep 19 08:37:01 2023
 import boxx
 import random
 import numpy as np
-from boxx import mg
 import torch
 from torch import nn
 
@@ -19,7 +18,7 @@ eps = 1e-20
 
 
 class SplitableDiscreteDistribution:
-    # TODO 编程 nn.module named_buffers
+    # TODO change to nn.module named_buffers
     def __init__(self, k):
         self.k = k
         self.i_to_idx = np.arange(k)
@@ -75,7 +74,6 @@ class SplitableDiscreteDistribution:
         # 简化近似: 消失节点处的 output 概率直接置 0 而 GT 仍然为原来的值 pd
         tv_loss_now = ps - pd
         tv_loss_splited = abs(ps / 2 - P) * 2 + pd
-        # mg()
         if self.iter > getattr(self, "split_start", 0) and (
             tv_loss_splited < tv_loss_now or pd < P / 2
         ):
@@ -87,7 +85,9 @@ class SplitableDiscreteDistribution:
             return d
 
     def split(self, i_split, i_disapear):
-        """"""
+        """
+        Apply Split-and-Prune on counters
+        """
         # old_near2 = self.near2.copy()
         if "wo.near2" and 0 or self.k == 2:  # or fix_near2
             # eps = 0.01
@@ -142,11 +142,14 @@ class SplitableDiscreteDistribution:
         )
         self.loss_acc[i_disapear] = self.loss_acc[i_split]
 
-        # mg()  # /0
         # assert np.isfinite(self.near2).all()
         return dict(i_split=i_split, i_disapear=i_disapear)
 
     def plot_dist(self):
+        """
+        plot the distribution of the discrete distribution
+        and the split history
+        """
         print(self)
         print(
             "last 10 split@[%s]"
@@ -299,7 +302,13 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
 
 class SplitableModuleMixin:
     def split(module, split_idxs, predict_c, optimizers=None):
-        # split/update weight
+        """
+        split_idxs: (2,) = [i_split, i_disapear]
+        predict_c: int, number of channels of one output
+        optimizers: list of optimizers, if not None, update optimizer's state simultaneously
+        
+        Apply Split-and-Prune on weight and optimizer's state
+        """
         with torch.no_grad():
             i_split, i_disapear = split_idxs
             i_split, i_disapear = int(i_split), int(i_disapear)
@@ -316,7 +325,10 @@ class SplitableModuleMixin:
                         for k in optimizer.state[weight]:
                             state_value = optimizer.state[weight][k]
                             # avoid scalar state
-                            if isinstance(state_value, torch.Tensor) and state_value.shape == weight.shape:
+                            if (
+                                isinstance(state_value, torch.Tensor)
+                                and state_value.shape == weight.shape
+                            ):
                                 optimizer.state[weight][k][
                                     i_disapear * predict_c : i_disapear * predict_c
                                     + predict_c
@@ -354,6 +366,9 @@ class LinearMixedPrecision(nn.Linear, SplitableModuleMixin):
 
 
 class AdaptConv2d(nn.Module):
+    """abandoned
+    Squeeze-and-Excitation Conv2d
+    """
     def __init__(
         self,
         in_channels,
@@ -423,16 +438,16 @@ class AdaptConv2d(nn.Module):
 
 
 class DiscreteDistributionOutput(nn.Module):
+    """
+    Discrete Distribution Layer of DDN
+    """
     inits = []
     learn_residual = True
     resize_area = True
     l1_loss = False
     leak_feat = True
-    # learn_residual = False
-    # l1_loss = True
     chain_dropout = 0
-    adapt_conv = 0
-    # adapt_conv = 3
+    adapt_conv = 0  # abandoned
 
     def __init__(
         self,
@@ -532,7 +547,7 @@ class DiscreteDistributionOutput(nn.Module):
             if "max_distance" not in d:
                 with torch.no_grad():
                     distance_matrix = distance_func(outputs, targets)  # (b, k)
-        if self.training:  # train
+        if self.training: 
             # del outputs
             # torch.cuda.empty_cache()
             if "max_distance" in d:  # random sample for DivergeShaping
@@ -556,14 +571,10 @@ class DiscreteDistributionOutput(nn.Module):
                 if random.random() < self.chain_dropout:
                     idx_k = torch.randint(0, self.k, (b,))
                 predicts = outputs[torch.arange(b), idx_k]
-                # predicts = forward_one_predict(self.multi_out_conv1x1, feat_last, idx_k, predict_c=self.predict_c)
-                # if self.learn_residual:
-                #     predicts = predict_last + predicts
-                # boxx.increase("sd")>8 and  boxx.g()/0
                 d["loss"] = loss_func(predicts, targets)
             d["losses"] = d.get("losses", []) + [d["loss"].mean()]
 
-            if d["output_level"] == d.get("random_start_level", -1):
+            if d["output_level"] == d.get("random_start_level", -1):  # for DivergeShaping, abandoned
                 with torch.no_grad():
                     # d["max_distance"] = (
                     #     torch.abs(outputs - targets[:, None]).max(1)[0].detach()
@@ -661,20 +672,19 @@ class DiscreteDistributionOutput(nn.Module):
 
     @classmethod
     def try_split_all(cls, optimizers=None):
+        """
+        try to split all the discrete distribution layers
+        """
         for self in cls.inits:
             self.try_split(optimizers=optimizers)
 
 
-# class DiscreteDistributionNetwork(nn.Module):
-
-
-# class HierarchicalDiscreteDistributionNetwork(nn.Module):
-
-
-# class HierarchicalDiscreteDistributionPyramidNetwork(nn.Module):
-
-
 class DivergeShapingManager:
+    """abandoned
+    
+    with diverge_shaping_manager(batchd, diverge_shaping_rate):
+        d = model(batchd)
+    """
     def __init__(self, seed="diverge_shaping"):
         self.fix_rand_gen = random.Random(seed)
 

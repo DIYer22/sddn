@@ -19,7 +19,8 @@ Need install [`distribution_playground`](https://github.com/DIYer22/distribution
 ```bash
 pip install distribution_playground
 git clone https://github.com/DIYer22/sddn.git
-python sddn/toy_exp.py
+cd sddn
+python toy_exp.py
 ```
 [toy_exp.py](toy_exp.py) includes:
 - Training a tiny DDN to fit probability densities
@@ -38,7 +39,13 @@ python sddn/toy_exp.py
 
 
 ## ▮ MNIST example
-TBD
+```bash
+python mnist.py
+```
+Will save image of "Hierarchical Generation Visualization of DDN" like this:
+
+![](https://discrete-distribution-networks.github.io/img/tree-latent.mnist-vis-level3.png)
+
 
 ## ▮ Citation
 ```bibtex
