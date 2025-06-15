@@ -306,7 +306,7 @@ class SplitableModuleMixin:
         split_idxs: (2,) = [i_split, i_disapear]
         predict_c: int, number of channels of one output
         optimizers: list of optimizers, if not None, update optimizer's state simultaneously
-        
+
         Apply Split-and-Prune on weight and optimizer's state
         """
         with torch.no_grad():
@@ -369,6 +369,7 @@ class AdaptConv2d(nn.Module):
     """abandoned
     Squeeze-and-Excitation Conv2d
     """
+
     def __init__(
         self,
         in_channels,
@@ -441,6 +442,7 @@ class DiscreteDistributionOutput(nn.Module):
     """
     Discrete Distribution Layer of DDN
     """
+
     inits = []
     learn_residual = True
     resize_area = True
@@ -547,7 +549,7 @@ class DiscreteDistributionOutput(nn.Module):
             if "max_distance" not in d:
                 with torch.no_grad():
                     distance_matrix = distance_func(outputs, targets)  # (b, k)
-        if self.training: 
+        if self.training:
             # del outputs
             # torch.cuda.empty_cache()
             if "max_distance" in d:  # random sample for DivergeShaping
@@ -574,7 +576,9 @@ class DiscreteDistributionOutput(nn.Module):
                 d["loss"] = loss_func(predicts, targets)
             d["losses"] = d.get("losses", []) + [d["loss"].mean()]
 
-            if d["output_level"] == d.get("random_start_level", -1):  # for DivergeShaping, abandoned
+            if d["output_level"] == d.get(
+                "random_start_level", -1
+            ):  # for DivergeShaping, abandoned
                 with torch.no_grad():
                     # d["max_distance"] = (
                     #     torch.abs(outputs - targets[:, None]).max(1)[0].detach()
@@ -681,10 +685,11 @@ class DiscreteDistributionOutput(nn.Module):
 
 class DivergeShapingManager:
     """abandoned
-    
+
     with diverge_shaping_manager(batchd, diverge_shaping_rate):
         d = model(batchd)
     """
+
     def __init__(self, seed="diverge_shaping"):
         self.fix_rand_gen = random.Random(seed)
 

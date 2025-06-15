@@ -42,10 +42,18 @@ python toy_exp.py
 ```bash
 python mnist.py
 ```
-Will save image of "Hierarchical Generation Visualization of DDN" like this:
+[mnist.py](mnist.py) includes complete experiment on training DDN using MNIST.  
+It is recommended to run this experiment in an IPython environment, such as Jupyter Lab.
+
+**For make video "Latent Space Visualization"**
+```bash
+python mnist.py --outputk8_for_vis
+```
+Will save image of "Hierarchical Generation Visualization of DDN" like blow every iter:
 
 ![](https://discrete-distribution-networks.github.io/img/tree-latent.mnist-vis-level3.png)
 
+These visualization images will form a video like [DDN_latent_video](https://github.com/Discrete-Distribution-Networks/DDN_latent_video)
 
 ## ▮ Citation
 ```bibtex

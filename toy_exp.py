@@ -83,7 +83,8 @@ if __name__ == "__main__":
         "gaussian",
         "uniform",  # the param initial from uniform, better end by uniform for close loop
     ]
-    output_root = os.path.expanduser("~/junk/ddn_toy_exp")
+    # output_root = os.path.expanduser("~/junk/ddn_toy_exp")
+    output_root = os.path.expanduser("tmp_ddn_toy_exp")
     # output_root = os.path.expanduser("/tmp/junk/ddn_toy_exp")
 
     dirr = (

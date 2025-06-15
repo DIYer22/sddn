@@ -139,9 +139,9 @@ class DiscreteDistributionNetwork(nn.Module):
     ):
         super().__init__()
         # Sinusoidal embedding
-        self.time_embed = nn.Embedding(class_n, class_emb_dim)
-        self.time_embed.weight.data = sinusoidal_embedding(class_n, class_emb_dim)
-        self.time_embed.requires_grad_(False)
+        self.class_embed = nn.Embedding(class_n, class_emb_dim)
+        self.class_embed.weight.data = sinusoidal_embedding(class_n, class_emb_dim)
+        self.class_embed.requires_grad_(False)
 
         # First half
         self.te1 = self._make_te(class_emb_dim, 1)
@@ -223,7 +223,7 @@ class DiscreteDistributionNetwork(nn.Module):
         n = len(x)
         if t is None:
             t = torch.zeros(n, dtype=torch.long).cuda()
-        t = self.time_embed(t)
+        t = self.class_embed(t)
         out1 = self.b1(
             x + self.te1(t).reshape(n, -1, 1, 1)
         )  # (bs, 1 * basec, size/2, size/2)
@@ -297,7 +297,7 @@ class HierarchicalDiscreteDistributionNetwork(nn.Module):
 
 
 # In[ ]:
-def training_loop(model, dataloader, optimizer, shots, num_timesteps, device=device):
+def training_loop(model, dataloader, optimizer, shots, device=device):
     """Training loop for DDN"""
 
     global_step = 0
@@ -409,82 +409,84 @@ def generate_image(model, batch_size, channel, size):
 
 
 if __name__ == "__main__":
-    args, argkv = boxx.getArgvDic()
     # In[ ]:
-    basec = 32
+    # config
+    basec = 32  # base channel number
     outputk = 64
-    stackn = 16
+    # Stackn mean stack N DDL layers with different parameters
+    # Repeatn mean repeat N times of the same networks
+    # total DDL layers are stackn * repeatn
+    stackn = 1
     repeatn = 10
-    batch_size = 8  # int(4096 // (stackn * repeatn)) // 2
+    batch_size = 256
     learning_rate = 1e-3
-    shots = "300w"
-    num_timesteps = 1000
+    shots = "30000k"  # How many images to train
     num_workers = 10
-    dumpn = 4
-    testn = 4
-    logmin = 30
-    data = "cifar"
-    data = "mnist"
-    condition = False + 1
-    task = f"{data}-default"
+    dumpn = 4  # Total dumped checkpoint number during training
+    testn = 4  # How many hundreds of generated images when training finished
+    logmin = 10  # Log every logmin minutes
+    condition = False  # Whether to use class condition
+    DiscreteDistributionOutput.learn_residual = (
+        False  # No need learn_residual when using "Recurrence Iteration" paradigm
+    )
 
     cudan = torch.cuda.device_count()
     debug = not cudan or torch.cuda.get_device_capability("cuda") <= (6, 9)
-    if data == "mnist":
-        basec = 16
-        repeatn = 10
-        batch_size = 256
-        stackn = 1
-        shots = "3000w"
-        logmin = 30
-        logmin = 10
-        condition = False
-        # DiscreteDistributionOutput.l1_loss =True
-        DiscreteDistributionOutput.learn_residual = False
-        diverge_shaping_rate = 0
-        DiscreteDistributionOutput.adapt_conv = 0
-        task = "mnist_diverge.shaping0_wo.res_3000w-adapt.conv0"
-    outputk8_for_vis = True
+
+    # support change config by cli like: python mnist.py --shots 1000k
+    args, argkv = boxx.getArgvDic()
+    outputk8_for_vis = argkv.get("outputk8_for_vis")
     if outputk8_for_vis:
-        # dumpn = 20
-        basec = 32
-        shots = "300w"
+        print(
+            'outputk8_for_vis is True, will generate video of "Latent Space Visualization", thus draw and save latent vis imag every iter, very slow for training!!!'
+        )
+        shots = "3000k"
         outputk = 8
         repeatn = 3
-        DiscreteDistributionOutput.learn_residual = False
-        diverge_shaping_rate = 0
-        DiscreteDistributionOutput.adapt_conv = 0
-        chain_dropout = 0.0
-        DiscreteDistributionOutput.chain_dropout = chain_dropout
-        task = f"mnist_outputk{outputk}_repeatn{repeatn}_chain.dropout{chain_dropout}"
+        """
+# build video from latent vis pngs
+sudo apt install ffmpeg
+ffmpeg  -framerate 30 \
+        -pattern_type glob -i 'latent_vis/shot*_loss*.png' \
+        -stream_loop -1 -ss 1 -i ~/ws/ddn/asset/Thomas_J._Bergersen_-_Final_Frontier_\(Hydr0.org\).mp3 \
+        -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p \
+        -r 60 \
+        -c:a aac -b:a 192k \
+        -shortest \
+        -map 0:v:0 -map 1:a:0 \
+        latent_vis.mp4 -y
 
+Download BGM: https://fine.sunproxy.net/file/WEFjcUF4dTdnTCtwclZ3TzY1dUQzZjFBcithMkVMa0o2RWVWMjVsZzVwVHdHZURRWXlhWTBGOGkvQlVCRHB0cUtZZW9TRmNjNi9KS2ZnQ09Ucy9lcHZLR2RRSUtkQ3NJMUo4M0k2TnNhVDA9/Thomas_J._Bergersen_-_Final_Frontier_(Hydr0.org).mp3
+"""
     if argkv.get("debug"):
         debug = True
-    if debug:
+    if debug:  # debug mode
         testn = 1
         basec = 8
         batch_size = 2
-        shots = 100
-        num_timesteps = 4
-        num_workers = 0
-        dumpn = 2
+        shots = 5
         stackn = 2
         repeatn = 3
+        dumpn = 2
+        num_workers = 0
+        print("debug mode")
 
     shots = argkv.get("shots", shots)
     if isinstance(shots, str):
-        shots = int(shots.lower().replace("w", "0000").replace("k", "000"))
+        shots = int(shots.lower().replace("k", "000").replace("w", "0000"))
     batch_size = argkv.get("batch_size", batch_size)
 
-    # data/exp dir
+    # prepare data/exp dir
     root_dir = boxx.relfile("../data/")
     if os.path.isdir(os.path.expanduser("~/dataset")):
         root_dir = os.path.expanduser("~/dataset")
+    task = f"mnist_outputk{outputk}_layern{stackn * repeatn}"
     path_prifix = (
-        os.path.join(root_dir, "exps/minst_ddpm", boxx.localTimeStr(1)) + "-" + task
+        os.path.join(root_dir, "exps/minst_ddn", boxx.localTimeStr(1)) + "-" + task
     )
-    # os.makedirs(os.path.dirname(path_prifix), exist_ok=True)
     os.makedirs((path_prifix), exist_ok=True)
+    print(f"Experment dir: {path_prifix}")
+    # collect images in /tmp/boxxTmp/showtmp saved by boxx.show()
     if not os.path.exists("/tmp/boxxTmp"):
         os.system(f"ln -sf {path_prifix} /tmp/boxxTmp")
     if not os.path.exists("/tmp/boxxTmp/showtmp"):
@@ -492,31 +494,17 @@ if __name__ == "__main__":
     if outputk8_for_vis:
         latent_vis_dir = f"{path_prifix}/latent_vis"
         os.makedirs(latent_vis_dir, exist_ok=True)
-    if data == "cifar":
-        transform01 = torchvision.transforms.Compose(
-            [
-                # torchvision.transforms.Resize(32),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize((0.5), (0.5)),
-            ]
-        )
-        dataset = torchvision.datasets.cifar.CIFAR10(
-            os.path.expanduser("~/dataset"),
-            train=True,
-            transform=transform01,
-            download=True,
-        )
-    if data == "mnist":
-        transform01 = torchvision.transforms.Compose(
-            [
-                torchvision.transforms.Resize(32),
-                torchvision.transforms.ToTensor(),
-                torchvision.transforms.Normalize((0.5), (0.5)),
-            ]
-        )
-        dataset = torchvision.datasets.MNIST(
-            root=root_dir, train=True, transform=transform01, download=True
-        )
+
+    transform01 = torchvision.transforms.Compose(
+        [
+            torchvision.transforms.Resize(32),
+            torchvision.transforms.ToTensor(),
+            torchvision.transforms.Normalize((0.5), (0.5)),
+        ]
+    )
+    dataset = torchvision.datasets.MNIST(
+        root=root_dir, train=True, transform=transform01, download=True
+    )
     channeln = len(dataset[0][0])
     dataloader = torch.utils.data.DataLoader(
         dataset=dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers
@@ -533,17 +521,15 @@ if __name__ == "__main__":
     )
     ddn_seqen = [gen_ddn() for _ in range(stackn)]
     ddn = ddn_seqen[0]
-    network = HierarchicalDiscreteDistributionNetwork(ddn_seqen, repeatn)
-    network = network.to(device)
-    model = network
+    model = HierarchicalDiscreteDistributionNetwork(ddn_seqen, repeatn)
+    model = model.to(device)
     optimizer = torch.optim.Adam(
         [v for k, v in model.named_parameters()],
         lr=learning_rate,
     )
-    training_loop(model, dataloader, optimizer, shots, num_timesteps, device=device)
+    training_loop(model, dataloader, optimizer, shots, device=device)
 
-    for b in dataloader:
-        batch = b[0]
+    for batch, class_ in dataloader:
         break
 
     bn = [b for b in batch[:100]]
@@ -556,19 +542,3 @@ if __name__ == "__main__":
 
     # import torchsummary
     # torchsummary.summary(network.eval().ddn_seqen[0], (channeln, 32, 32))
-
-"""
-# build video from latent vis pngs
-sudo apt install ffmpeg
-ffmpeg  -framerate 30 \
-        -pattern_type glob -i 'latent_vis/shot*_loss*.png' \
-        -stream_loop -1 -ss 1 -i ~/ws/ddn/asset/Thomas_J._Bergersen_-_Final_Frontier_\(Hydr0.org\).mp3 \
-        -c:v libx264 -crf 18 -preset slow -pix_fmt yuv420p \
-        -r 60 \
-        -c:a aac -b:a 192k \
-        -shortest \
-        -map 0:v:0 -map 1:a:0 \
-        latent_vis.mp4 -y
-
-BGM: https://fine.sunproxy.net/file/WEFjcUF4dTdnTCtwclZ3TzY1dUQzZjFBcithMkVMa0o2RWVWMjVsZzVwVHdHZURRWXlhWTBGOGkvQlVCRHB0cUtZZW9TRmNjNi9KS2ZnQ09Ucy9lcHZLR2RRSUtkQ3NJMUo4M0k2TnNhVDA9/Thomas_J._Bergersen_-_Final_Frontier_(Hydr0.org).mp3
-"""
