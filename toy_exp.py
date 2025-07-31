@@ -45,9 +45,7 @@ class GeneratorModel:
 if __name__ == "__main__":
     from boxx import *
     from boxx import show, shows, uint8, histEqualize, p, norma, imsave, openwrite
-
-    # from distribution_playground import *  # pip install distribution_playground
-    import distribution_playground
+    import distribution_playground  # pip install distribution_playground
     import cv2
 
     # experments hyper-parameters
