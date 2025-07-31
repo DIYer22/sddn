@@ -96,7 +96,9 @@ class SplitableDiscreteDistribution:
         near2_sum = self.near2[i_disapear].sum()
 
         def get_weight_per_row():
-            weight_matrix = self.near2 / np.sum(self.near2, axis=1, keepdims=True)
+            weight_matrix = self.near2 / (
+                np.sum(self.near2, axis=1, keepdims=True) + eps
+            )  # TODO is +eps right?(div to zero will raise warning and slow down compute)
             idx_finite_2d = np.isfinite(weight_matrix)
             weight_matrix = np.where(idx_finite_2d, weight_matrix, 1 / (self.k - 1))
             weight_matrix[~idx_finite_2d.all(), i_disapear] = 0
@@ -273,9 +275,11 @@ def forward_one_predict(conv1x1, input, idx_k=None, predict_c=3):
                 torch.nn.functional.conv2d(
                     input[ib : ib + 1],
                     weight[ib * predict_c : ib * predict_c + predict_c],
-                    None
-                    if bias is None
-                    else bias[ib * predict_c : ib * predict_c + predict_c],
+                    (
+                        None
+                        if bias is None
+                        else bias[ib * predict_c : ib * predict_c + predict_c]
+                    ),
                     conv1x1.stride,
                     conv1x1.padding,
                     conv1x1.dilation,
@@ -313,9 +317,9 @@ class SplitableModuleMixin:
             i_split, i_disapear = split_idxs
             i_split, i_disapear = int(i_split), int(i_disapear)
             weight = module._parameters["weight"]  # (k*predict_c, last_c)
-            weight[
-                i_disapear * predict_c : i_disapear * predict_c + predict_c
-            ] = weight[i_split * predict_c : i_split * predict_c + predict_c]
+            weight[i_disapear * predict_c : i_disapear * predict_c + predict_c] = (
+                weight[i_split * predict_c : i_split * predict_c + predict_c]
+            )
             assert module.bias is None
 
             # update optimizer
@@ -343,9 +347,9 @@ class Conv2dMixedPrecision(nn.Conv2d, SplitableModuleMixin):
         dtype = input.dtype
         if self.weight.dtype == dtype:
             return super().forward(input)
-        weight, bias = self.weight.to(
-            dtype
-        ), None if self.bias is None else self.bias.to(dtype)
+        weight, bias = self.weight.to(dtype), (
+            None if self.bias is None else self.bias.to(dtype)
+        )
         assert self.padding_mode == "zeros", self.padding_mode
         return nn.functional.conv2d(
             input, weight, bias, self.stride, self.padding, self.dilation, self.groups
@@ -359,9 +363,9 @@ class LinearMixedPrecision(nn.Linear, SplitableModuleMixin):
             input = input.reshape(input.shape[0], input.shape[1])
         if self.weight.dtype == dtype:
             return super().forward(input)
-        weight, bias = self.weight.to(
-            dtype
-        ), None if self.bias is None else self.bias.to(dtype)
+        weight, bias = self.weight.to(dtype), (
+            None if self.bias is None else self.bias.to(dtype)
+        )
         return nn.functional.linear(input, weight, bias)
 
 

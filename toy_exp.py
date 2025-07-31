@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import os
 import boxx
 import numpy as np
 from sddn import SplitableDiscreteDistribution
@@ -43,7 +44,11 @@ class GeneratorModel:
 
 if __name__ == "__main__":
     from boxx import *
-    from distribution_playground import *  # pip install distribution_playground
+    from boxx import show, shows, uint8, histEqualize, p, norma, imsave, openwrite
+
+    # from distribution_playground import *  # pip install distribution_playground
+    import distribution_playground
+    import cv2
 
     # experments hyper-parameters
 
@@ -101,8 +106,10 @@ if __name__ == "__main__":
         f"{output_root}/frames_bin{bins[0]}_k{k}_itern{itern}_batch{batch}{no_split_for_ablation}"
     )
     for namei, name in enumerate(density_name_seq):
-        density_map = density_map_builders[name](bins)
-        dist = DistributionByDensityArray(density_map["density"])
+        density_map = distribution_playground.density_map_builders[name](bins)
+        dist = distribution_playground.DistributionByDensityArray(
+            density_map["density"]
+        )
         if "reset_count":
             last_param = gen.param
             gen = GeneratorModel(k)
@@ -116,7 +123,12 @@ if __name__ == "__main__":
         def log(big=False):
             diver = dist.divergence(gen.param)
             (shows if big else show)(
-                uint8, histEqualize, diver, dist.density, diver_gt, density_to_rgb
+                uint8,
+                histEqualize,
+                diver,
+                dist.density,
+                diver_gt,
+                distribution_playground.density_to_rgb,
             )
             print("divergence:", dist.str_divergence(diver))
 
@@ -129,14 +141,14 @@ if __name__ == "__main__":
             gts = dist.sample(batch)
             inp = dict(gts=gts, no_split_for_ablation=no_split_for_ablation)
             gen.train(inp)
-            if not increase(
+            if not boxx.increase(
                 "show log",
             ) % (itern // 5):
                 log()
-            if framen and not increase(
+            if framen and not boxx.increase(
                 "dump frame data",
             ) % (itern // framen):
-                saveData(
+                boxx.saveData(
                     dist.divergence(gen.param),
                     frames_data_dir + p / f"/{previous_name}-to-{name}_i{iteri:06}.pkl",
                 )
@@ -198,7 +210,6 @@ if __name__ == "__main__":
 # %%
 if "convert_to_png_frames_and_gif":  # frames_data_root, k, bins = '.', 10000, [100,100]
     from distribution_playground import density_to_rgb, density_map_builders
-    from boxx import *
 
     gt_density_maps = {n: f(bins) for n, f in density_map_builders.items()}
 
@@ -228,7 +239,7 @@ if "convert_to_png_frames_and_gif":  # frames_data_root, k, bins = '.', 10000, [
             )
             pad = bins[0] // 32
             vis = np.concatenate([vis, np.ones_like(vis)[:, :pad] * 255, vis_target], 1)
-            vis = padding(vis, pad)
+            vis = boxx.padding(vis, pad)
             vis[(vis == 0).all(-1)] = 255
         png_path = f"{png_dir}/{pkli:05}_{basename(pklp.replace('.pkl', '.png'))}"
         imsave(png_path, vis)
